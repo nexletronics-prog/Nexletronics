@@ -1,0 +1,707 @@
+rules_version = '2';
+
+service cloud.firestore {
+
+  match /databases/{database}/documents {
+
+    /*
+     * ==========================================================
+     * AUTH HELPERS
+     * ==========================================================
+     */
+
+    function signedIn() {
+      return request.auth != null;
+    }
+
+
+    function isAdmin() {
+      return signedIn()
+        && exists(
+          /databases/$(database)/documents/users/$(request.auth.uid)
+        )
+        && get(
+          /databases/$(database)/documents/users/$(request.auth.uid)
+        ).data.role == "admin";
+    }
+
+
+    function isOwner(userId) {
+      return signedIn()
+        && request.auth.uid == userId;
+    }
+
+
+    /*
+     * ==========================================================
+     * USERS
+     * ==========================================================
+     */
+
+    match /users/{userId} {
+
+      /*
+       * Admin can manage all user records.
+       */
+
+      allow read, write:
+        if isAdmin();
+
+
+      /*
+       * Customer can read their own profile.
+       */
+
+      allow read:
+        if isOwner(userId);
+
+
+      /*
+       * Customer can create their own profile.
+       */
+
+      allow create:
+        if isOwner(userId);
+
+
+      /*
+       * Customer can update their own profile, but cannot
+       * change the role field.
+       */
+
+      allow update:
+        if isOwner(userId)
+        && request.resource.data.role ==
+           resource.data.role;
+
+
+      allow delete:
+        if isAdmin();
+    }
+
+
+    /*
+     * ==========================================================
+     * PRODUCTS
+     * ==========================================================
+     */
+
+    match /products/{productId} {
+
+      /*
+       * Products are publicly readable.
+       */
+
+      allow read:
+        if true;
+
+
+      /*
+       * Only Admin can manage products.
+       */
+
+      allow create, update, delete:
+        if isAdmin();
+    }
+
+
+    /*
+     * ==========================================================
+     * PRODUCT REVIEWS
+     * ==========================================================
+     *
+     * ProductDetails.tsx currently attempts to load reviews.
+     */
+
+    match /products/{productId}/reviews/{reviewId} {
+
+      /*
+       * Visitors can read reviews.
+       */
+
+      allow read:
+        if true;
+
+
+      /*
+       * Signed-in customers can create their own reviews.
+       */
+
+      allow create:
+        if signedIn()
+        && request.resource.data.userId ==
+           request.auth.uid;
+
+
+      /*
+       * Customers can update/delete only their own reviews.
+       * Admin can manage all reviews.
+       */
+
+      allow update, delete:
+        if isAdmin()
+        || (
+          signedIn()
+          && resource.data.userId ==
+             request.auth.uid
+          && request.resource.data.userId ==
+             resource.data.userId
+        );
+    }
+
+
+    /*
+     * ==========================================================
+     * ORDERS
+     * ==========================================================
+     */
+
+    match /orders/{orderId} {
+
+      /*
+       * Admin order management.
+       */
+
+      allow read, update, delete:
+        if isAdmin();
+
+
+      /*
+       * Customers can read their own orders.
+       */
+
+      allow read:
+        if signedIn()
+        && resource.data.userId ==
+           request.auth.uid;
+
+
+      /*
+       * Customers can create an order for themselves.
+       */
+
+      allow create:
+        if signedIn()
+        && request.resource.data.userId ==
+           request.auth.uid;
+    }
+
+
+    /*
+     * ==========================================================
+     * CARTS
+     * ==========================================================
+     */
+
+    match /carts/{cartId} {
+
+      allow read, write:
+        if isAdmin()
+        || (
+          signedIn()
+          && cartId ==
+             request.auth.uid
+        );
+    }
+
+
+    /*
+     * ==========================================================
+     * CONTACTS / ENQUIRIES
+     * ==========================================================
+     */
+
+    match /contacts/{contactId} {
+
+      /*
+       * Contact form submission is intentionally public because
+       * visitors can contact Nexletronics without an account.
+       */
+
+      allow create:
+        if true;
+
+
+      /*
+       * Admin manages enquiries.
+       */
+
+      allow read, update, delete:
+        if isAdmin();
+    }
+
+
+    match /enquiries/{enquiryId} {
+
+      allow create:
+        if true;
+
+      allow read, update, delete:
+        if isAdmin();
+    }
+
+
+    /*
+     * ==========================================================
+     * SERVICES
+     * ==========================================================
+     */
+
+    match /services/{serviceId} {
+
+      allow read:
+        if true;
+
+      allow create, update, delete:
+        if isAdmin();
+    }
+
+
+    /*
+     * ==========================================================
+     * WEBSITE SETTINGS
+     * ==========================================================
+     */
+
+    match /siteSettings/{settingsId} {
+
+      allow read:
+        if true;
+
+      allow create, update, delete:
+        if isAdmin();
+    }
+
+
+    match /websiteSettings/{settingsId} {
+
+      allow read:
+        if true;
+
+      allow create, update, delete:
+        if isAdmin();
+    }
+
+
+    /*
+     * ==========================================================
+     * 3D PRINTING SETTINGS
+     * ==========================================================
+     *
+     * Customer Printing3D.tsx reads:
+     *
+     *     printingSettings/default
+     *
+     * Admin PrintingSettings writes this document.
+     */
+
+    match /printingSettings/{settingsId} {
+
+      /*
+       * Customer page needs to read the active printing
+       * configuration.
+       */
+
+      allow read:
+        if true;
+
+
+      /*
+       * Only Admin can change printing configuration.
+       */
+
+      allow create, update, delete:
+        if isAdmin();
+    }
+
+
+    /*
+     * ==========================================================
+     * 3D PRINTING REQUESTS
+     * ==========================================================
+     *
+     * Your application creates printing requests through
+     * printing.service.ts.
+     *
+     * The existing customer flow stores:
+     *
+     *     userId
+     *     customerName
+     *     customerEmail
+     *     originalFileName
+     *     storagePath
+     *     material
+     *     finish
+     *     quantity
+     *     dimensions
+     *     estimate
+     *     estimatedPrice
+     *     status
+     *     paymentStatus
+     * ==========================================================
+     */
+
+    match /printingRequests/{requestId} {
+
+      /*
+       * Admin can see and manage every request.
+       */
+
+      allow read, update, delete:
+        if isAdmin();
+
+
+      /*
+       * Customer creates a request belonging to themselves.
+       */
+
+      allow create:
+        if signedIn()
+        && request.resource.data.userId ==
+           request.auth.uid;
+
+
+      /*
+       * Customer can view their own request.
+       */
+
+      allow read:
+        if signedIn()
+        && resource.data.userId ==
+           request.auth.uid;
+
+
+      /*
+       * Customer may update only their own request while
+       * ownership remains unchanged.
+       *
+       * Admin retains unrestricted update access above.
+       */
+
+      allow update:
+        if signedIn()
+        && resource.data.userId ==
+           request.auth.uid
+        && request.resource.data.userId ==
+           resource.data.userId;
+    }
+
+
+    /*
+     * ==========================================================
+     * 3D PRINTING ORDERS
+     * ==========================================================
+     *
+     * Some older/newer versions of the printing service use
+     * "printingOrders".
+     *
+     * Keep this path covered so both versions continue to work.
+     */
+
+    match /printingOrders/{orderId} {
+
+      allow read, update, delete:
+        if isAdmin();
+
+
+      allow create:
+        if signedIn()
+        && request.resource.data.userId ==
+           request.auth.uid;
+
+
+      allow read:
+        if signedIn()
+        && resource.data.userId ==
+           request.auth.uid;
+
+
+      allow update:
+        if signedIn()
+        && resource.data.userId ==
+           request.auth.uid
+        && request.resource.data.userId ==
+           resource.data.userId;
+    }
+
+
+    /*
+     * ==========================================================
+     * CUSTOM PROJECTS
+     * ==========================================================
+     */
+
+    /*
+     * ==========================================================
+     * 3D PRINTING ORDERS
+     * ==========================================================
+     *
+     * printing.service.ts uses the "threeDPrintOrders"
+     * collection.
+     *
+     * Admins can manage every printing order.
+     * Customers can create/read/update only their own orders.
+     */
+    match /threeDPrintOrders/{orderId} {
+
+      allow read, update, delete:
+        if isAdmin();
+
+      allow create:
+        if signedIn()
+        && request.resource.data.userId ==
+           request.auth.uid;
+
+      allow read:
+        if signedIn()
+        && resource.data.userId ==
+           request.auth.uid;
+
+      allow update:
+        if signedIn()
+        && resource.data.userId ==
+           request.auth.uid
+        && request.resource.data.userId ==
+           resource.data.userId;
+    }
+
+
+    match /customProjects/{projectId} {
+
+      /*
+       * Admin can fully manage projects.
+       */
+
+      allow read, create, update, delete:
+        if isAdmin();
+
+
+      /*
+       * Customer can read their own project.
+       */
+
+      allow read:
+        if signedIn()
+        && resource.data.userId ==
+           request.auth.uid;
+
+
+      /*
+       * Customer creates a project for themselves.
+       */
+
+      allow create:
+        if signedIn()
+        && request.resource.data.userId ==
+           request.auth.uid;
+
+
+      /*
+       * Customer can update their own project but cannot
+       * transfer project ownership.
+       */
+
+      allow update:
+        if signedIn()
+        && resource.data.userId ==
+           request.auth.uid
+        && request.resource.data.userId ==
+           resource.data.userId;
+
+
+      /*
+       * Only Admin can delete.
+       */
+
+      allow delete:
+        if isAdmin();
+
+
+      /*
+       * ========================================================
+       * CUSTOM QUOTATIONS
+       * ========================================================
+       */
+
+      match /quotations/{quotationId} {
+
+        /*
+         * Admin quotation management.
+         */
+
+        allow read, create, update, delete:
+          if isAdmin();
+
+
+        /*
+         * Customer quotation viewing.
+         */
+
+        allow read:
+          if signedIn()
+          && get(
+            /databases/$(database)/documents/customProjects/$(projectId)
+          ).data.userId ==
+             request.auth.uid;
+
+
+        /*
+         * Customer accept/reject.
+         */
+
+        allow update:
+          if signedIn()
+          && get(
+            /databases/$(database)/documents/customProjects/$(projectId)
+          ).data.userId ==
+             request.auth.uid
+          && request.resource.data.diff(
+               resource.data
+             ).affectedKeys().hasOnly([
+               "status",
+               "rejectionReason",
+               "rejectedAt",
+               "acceptedAt",
+               "updatedAt"
+             ]);
+      }
+    }
+
+
+    /*
+     * ==========================================================
+     * CUSTOM PROJECT MESSAGES
+     * ==========================================================
+     *
+     * The existing service uses the top-level collection:
+     *
+     * customProjectMessages
+     */
+
+    match /customProjectMessages/{messageId} {
+
+      /*
+       * Admin can read every project message.
+       */
+
+      allow read:
+        if isAdmin();
+
+
+      /*
+       * Customer can read a message only when the parent
+       * project belongs to them.
+       */
+
+      allow read:
+        if signedIn()
+        && exists(
+          /databases/$(database)/documents/customProjects/$(resource.data.projectId)
+        )
+        && get(
+          /databases/$(database)/documents/customProjects/$(resource.data.projectId)
+        ).data.userId ==
+           request.auth.uid;
+
+
+      /*
+       * Admin replies.
+       */
+
+      allow create:
+        if isAdmin();
+
+
+      /*
+       * Customer sends a message to their own project.
+       */
+
+      allow create:
+        if signedIn()
+        && exists(
+          /databases/$(database)/documents/customProjects/$(request.resource.data.projectId)
+        )
+        && get(
+          /databases/$(database)/documents/customProjects/$(request.resource.data.projectId)
+        ).data.userId ==
+           request.auth.uid
+        && request.resource.data.senderId ==
+           request.auth.uid
+        && request.resource.data.senderType ==
+           "customer";
+
+
+      allow update, delete:
+        if isAdmin();
+    }
+
+
+    /*
+     * ==========================================================
+     * CUSTOM PROJECT ACTIVITIES
+     * ==========================================================
+     */
+
+    match /customProjectActivities/{activityId} {
+
+      allow read, create, update, delete:
+        if isAdmin();
+    }
+
+
+    /*
+     * ==========================================================
+     * CUSTOM PORTFOLIO
+     * ==========================================================
+     */
+
+    match /customPortfolio/{portfolioId} {
+
+      /*
+       * Public showcase.
+       */
+
+      allow read:
+        if true;
+
+
+      allow create, update, delete:
+        if isAdmin();
+    }
+
+
+    /*
+     * ==========================================================
+     * CUSTOM SHOWCASE SETTINGS
+     * ==========================================================
+     */
+
+    match /customShowcaseSettings/{settingsId} {
+
+      /*
+       * Public Custom Solutions page needs these settings.
+       */
+
+      allow read:
+        if true;
+
+
+      allow create, update, delete:
+        if isAdmin();
+    }
+
+
+    /*
+     * ==========================================================
+     * DEFAULT DENY
+     * ==========================================================
+     */
+
+    match /{document=**} {
+
+      allow read, write:
+        if false;
+    }
+
+  }
+}

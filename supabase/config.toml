@@ -1,0 +1,2 @@
+[functions.admin-product-upload]
+verify_jwt = false
