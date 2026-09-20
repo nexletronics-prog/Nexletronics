@@ -34,6 +34,8 @@ import type {
   HomepageSettings,
 } from "../../../types/siteSettings";
 
+import Homepage3DModelManager from "./Homepage3DModelManager";
+
 
 /*
  * ==========================================================
@@ -1042,6 +1044,9 @@ export default function WebsiteManager() {
         </div>
 
       </section>
+
+
+      <Homepage3DModelManager />
 
 
       {/* ====================================================

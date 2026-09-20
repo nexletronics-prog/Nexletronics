@@ -1,14 +1,36 @@
+import {
+  lazy,
+  Suspense,
+  useEffect,
+  useState,
+} from "react";
+
 import { Link } from "react-router-dom";
 
 import type {
   HomepageSettings,
 } from "../../types/siteSettings";
 
+import {
+  defaultHomepage3DModel,
+  type Homepage3DModel,
+} from "../../types/homepage3DModel";
+
+import {
+  subscribeToHomepage3DModel,
+} from "../../services/homepage3DModel.service";
+
+const HomepageSTLViewer =
+  lazy(
+    () =>
+      import(
+        "./HomepageSTLViewer"
+      ),
+  );
 
 interface HeroProps {
   settings: HomepageSettings;
 }
-
 
 export function Hero({
   settings,
@@ -29,12 +51,45 @@ export function Hero({
     settings.secondaryButtonText ||
     "Discover Nexletronics";
 
+  const [
+    homepage3DModel,
+    setHomepage3DModel,
+  ] =
+    useState<Homepage3DModel>(
+      defaultHomepage3DModel,
+    );
+
+  useEffect(() => {
+    return subscribeToHomepage3DModel(
+      (nextModel) => {
+        setHomepage3DModel(
+          nextModel,
+        );
+      },
+
+      (error) => {
+        console.error(
+          "Homepage 3D model listener failed:",
+          error,
+        );
+
+        setHomepage3DModel(
+          defaultHomepage3DModel,
+        );
+      },
+    );
+  }, []);
+
+  const showHomepage3D =
+    homepage3DModel.enabled &&
+    Boolean(
+      homepage3DModel.fileUrl,
+    );
+
   return (
     <section className="relative overflow-hidden bg-white">
 
-      {/* ==================================================
-          BACKGROUND
-      =================================================== */}
+      {/* BACKGROUND */}
 
       <div className="pointer-events-none absolute inset-0">
 
@@ -46,16 +101,11 @@ export function Hero({
 
       </div>
 
-
-      {/* ==================================================
-          HERO CONTENT
-      =================================================== */}
+      {/* CONTENT */}
 
       <div className="container-custom relative grid min-h-[760px] items-center gap-16 py-20 lg:grid-cols-[1.05fr_0.95fr] lg:py-24">
 
-        {/* =================================================
-            LEFT
-        ================================================== */}
+        {/* LEFT */}
 
         <div className="max-w-3xl">
 
@@ -69,22 +119,13 @@ export function Hero({
 
           </div>
 
-
           <h1 className="mt-7 max-w-4xl text-5xl font-black leading-[0.98] tracking-[-0.04em] text-neutral-950 sm:text-6xl lg:text-7xl xl:text-[5.25rem]">
-
             {settings.heroTitle}
-
           </h1>
-
 
           <p className="mt-8 max-w-2xl text-base leading-8 text-neutral-600 sm:text-lg">
             {settings.heroSubtitle}
           </p>
-
-
-          {/* =================================================
-              BUTTONS
-          ================================================== */}
 
           <div className="mt-10 flex flex-wrap gap-4">
 
@@ -99,7 +140,6 @@ export function Hero({
               </span>
             </Link>
 
-
             <Link
               to={secondaryLink}
               className="inline-flex items-center justify-center rounded-full border border-neutral-300 bg-white px-7 py-4 text-sm font-black text-neutral-900 transition duration-200 hover:-translate-y-0.5 hover:border-[#D4AF37] hover:text-[#9b7e1d]"
@@ -108,11 +148,6 @@ export function Hero({
             </Link>
 
           </div>
-
-
-          {/* =================================================
-              TRUST ROW
-          ================================================== */}
 
           <div className="mt-12 grid max-w-2xl grid-cols-1 gap-4 sm:grid-cols-3">
 
@@ -128,7 +163,6 @@ export function Hero({
 
             </div>
 
-
             <div className="rounded-2xl border border-neutral-200 bg-white/80 p-4 backdrop-blur">
 
               <p className="text-2xl font-black text-neutral-950">
@@ -140,7 +174,6 @@ export function Hero({
               </p>
 
             </div>
-
 
             <div className="rounded-2xl border border-neutral-200 bg-white/80 p-4 backdrop-blur">
 
@@ -158,28 +191,70 @@ export function Hero({
 
         </div>
 
-
-        {/* ==================================================
-            RIGHT VISUAL
-        =================================================== */}
+        {/* RIGHT */}
 
         <div className="relative mx-auto w-full max-w-xl lg:mr-0">
 
-          {/* glow */}
-
           <div className="absolute inset-8 rounded-[3rem] bg-[#D4AF37]/20 blur-3xl" />
-
-
-          {/* main card */}
 
           <div className="relative rounded-[3rem] border border-[#D4AF37]/25 bg-white p-4 shadow-[0_30px_100px_rgba(30,30,30,0.12)]">
 
             <div className="relative aspect-square overflow-hidden rounded-[2.5rem] bg-neutral-950">
 
-              {settings.heroImage ? (
+              {showHomepage3D ? (
+
+                <Suspense
+                  fallback={
+                    <div className="flex h-full w-full items-center justify-center bg-neutral-950">
+
+                      <div className="text-center">
+
+                        <div className="mx-auto h-10 w-10 animate-spin rounded-full border-2 border-white/20 border-t-[#D4AF37]" />
+
+                        <p className="mt-4 text-xs font-bold uppercase tracking-[0.18em] text-neutral-400">
+                          Loading 3D Model
+                        </p>
+
+                      </div>
+
+                    </div>
+                  }
+                >
+
+                  <HomepageSTLViewer
+                    url={
+                      homepage3DModel.fileUrl
+                    }
+
+                    autoRotate={
+                      homepage3DModel.rotationEnabled
+                    }
+
+                    rotationSpeed={
+                      homepage3DModel.rotationSpeed
+                    }
+
+                    zoomEnabled={
+                      homepage3DModel.zoomEnabled
+                    }
+
+                    zoomLevel={
+                      homepage3DModel.zoomLevel
+                    }
+
+                    showLoadingLabel={
+                      false
+                    }
+                  />
+
+                </Suspense>
+
+              ) : settings.heroImage ? (
 
                 <img
-                  src={settings.heroImage}
+                  src={
+                    settings.heroImage
+                  }
                   alt={
                     settings.heroTitle ||
                     "Nexletronics technology"
@@ -191,8 +266,6 @@ export function Hero({
 
                 <div className="relative flex h-full flex-col items-center justify-center overflow-hidden bg-neutral-950 text-center">
 
-                  {/* circuit grid */}
-
                   <div className="pointer-events-none absolute inset-0 opacity-25">
 
                     <div
@@ -200,13 +273,13 @@ export function Hero({
                       style={{
                         backgroundImage:
                           "linear-gradient(rgba(212,175,55,0.18) 1px, transparent 1px), linear-gradient(90deg, rgba(212,175,55,0.18) 1px, transparent 1px)",
+
                         backgroundSize:
                           "42px 42px",
                       }}
                     />
 
                   </div>
-
 
                   <div className="relative">
 
@@ -218,20 +291,15 @@ export function Hero({
 
                     </div>
 
-
                     <p className="mt-7 text-2xl font-black tracking-[0.16em] text-white">
                       NEXLETRONICS
                     </p>
-
 
                     <p className="mt-3 text-sm tracking-[0.18em] text-neutral-400">
                       TECHNOLOGY • INNOVATION • RELIABILITY
                     </p>
 
                   </div>
-
-
-                  {/* bottom status */}
 
                   <div className="absolute bottom-6 left-6 right-6 flex items-center justify-between rounded-2xl border border-white/10 bg-white/5 px-4 py-3 backdrop-blur">
 
@@ -245,7 +313,6 @@ export function Hero({
 
                     </div>
 
-
                     <span className="text-xs font-bold text-[#D4AF37]">
                       NXL
                     </span>
@@ -258,12 +325,39 @@ export function Hero({
 
             </div>
 
+            {showHomepage3D && (
+
+              <div className="pointer-events-none absolute bottom-8 left-8 right-8 flex items-end justify-between gap-4">
+
+                <div className="max-w-[75%] rounded-2xl border border-white/10 bg-black/55 px-4 py-3 backdrop-blur">
+
+                  <p className="text-sm font-black text-white">
+                    {
+                      homepage3DModel.title
+                    }
+                  </p>
+
+                  <p className="mt-1 text-xs leading-5 text-neutral-300">
+                    {
+                      homepage3DModel.description
+                    }
+                  </p>
+
+                </div>
+
+                <div className="rounded-full border border-white/10 bg-black/55 px-3 py-2 text-[10px] font-black uppercase tracking-[0.14em] text-[#D4AF37] backdrop-blur">
+
+                  {homepage3DModel.rotationEnabled
+                    ? "Rotating"
+                    : "Interactive"}
+
+                </div>
+
+              </div>
+
+            )}
+
           </div>
-
-
-          {/* =================================================
-              FLOATING CARD
-          ================================================== */}
 
           <div className="absolute -bottom-6 -left-4 hidden rounded-2xl border border-neutral-200 bg-white px-5 py-4 shadow-xl sm:block">
 
@@ -289,19 +383,18 @@ export function Hero({
 
           </div>
 
-
-          {/* =================================================
-              FLOATING BADGE
-          ================================================== */}
-
           <div className="absolute -right-3 top-8 hidden rounded-2xl border border-[#D4AF37]/20 bg-white px-4 py-3 shadow-xl sm:block">
 
             <p className="text-[10px] font-black uppercase tracking-[0.18em] text-[#9b7e1d]">
-              NEXLETRONICS
+              {showHomepage3D
+                ? "3D PRINTED MODEL"
+                : "NEXLETRONICS"}
             </p>
 
             <p className="mt-1 text-sm font-black text-neutral-950">
-              Technology for tomorrow
+              {showHomepage3D
+                ? "Interactive product view"
+                : "Technology for tomorrow"}
             </p>
 
           </div>
@@ -313,6 +406,5 @@ export function Hero({
     </section>
   );
 }
-
 
 export default Hero;
