@@ -498,7 +498,35 @@ export default function Footer() {
         </div>
 
       </div>
+<div className="flex flex-wrap gap-5 text-sm text-neutral-500">
+  <Link
+    to="/terms"
+    className="hover:text-[#D4AF37]"
+  >
+    Terms & Conditions
+  </Link>
 
+  <Link
+    to="/privacy"
+    className="hover:text-[#D4AF37]"
+  >
+    Privacy Policy
+  </Link>
+
+  <Link
+    to="/refund-policy"
+    className="hover:text-[#D4AF37]"
+  >
+    Refund Policy
+  </Link>
+
+  <Link
+    to="/shipping-policy"
+    className="hover:text-[#D4AF37]"
+  >
+    Shipping Policy
+  </Link>
+</div>
     </footer>
   );
 }

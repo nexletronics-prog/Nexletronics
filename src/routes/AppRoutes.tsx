@@ -7,6 +7,8 @@ import type {
   ReactNode,
 } from "react";
 
+import Terms from "../pages/Legal/Terms";
+import PrivacyPolicy from "../pages/Legal/PrivacyPolicy";
 
 /*
  * ==========================================================
@@ -318,6 +320,23 @@ export function AppRoutes() {
         }
       />
 
+<Route
+  path="/terms"
+  element={
+    <StorePage>
+      <Terms />
+    </StorePage>
+  }
+/>
+
+<Route
+  path="/privacy"
+  element={
+    <StorePage>
+      <PrivacyPolicy />
+    </StorePage>
+  }
+/>
 
       {/* ====================================================
           CUSTOM SOLUTIONS

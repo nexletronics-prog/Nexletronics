@@ -1,29 +1,69 @@
 import {
+  GoogleAuthProvider,
+  signInWithPopup,
+} from "firebase/auth";
+
+import {
   loginUser,
-  loginWithGoogle,
   logoutUser,
   registerUser,
 } from "../firebase/auth";
 
-
-export const authService = {
-  register:
-    registerUser,
-
-  login:
-    loginUser,
-
-  loginWithGoogle:
-    loginWithGoogle,
-
-  logout:
-    logoutUser,
-};
-
+import {
+  auth,
+} from "../firebase/config";
 
 /*
  * ==========================================================
- * NAMED SERVICE FUNCTIONS
+ * AUTH SERVICE
+ * ==========================================================
+ */
+
+/*
+ * Google sign-in
+ *
+ * This is implemented here so the rest of the application
+ * can use one consistent auth service.
+ */
+export async function loginWithGoogleAccount() {
+  const provider =
+    new GoogleAuthProvider();
+
+  provider.setCustomParameters({
+    prompt: "select_account",
+  });
+
+  const credential =
+    await signInWithPopup(
+      auth,
+      provider,
+    );
+
+  return credential.user;
+}
+
+/*
+ * Compatibility alias.
+ *
+ * This is used by AuthContext.
+ */
+export async function loginWithGoogle() {
+  return loginWithGoogleAccount();
+}
+
+/*
+ * Main auth service object.
+ */
+export const authService = {
+  register: registerUser,
+  login: loginUser,
+  loginWithGoogle,
+  logout: logoutUser,
+};
+
+/*
+ * ==========================================================
+ * NAMED HELPERS
  * ==========================================================
  */
 
@@ -39,7 +79,6 @@ export async function register(
   );
 }
 
-
 export async function login(
   email: string,
   password: string,
@@ -49,26 +88,6 @@ export async function login(
     password,
   );
 }
-
-
-/*
- * This is the export GoogleSignInButton.tsx expects.
- */
-
-export async function loginWithGoogleAccount() {
-  return loginWithGoogle();
-}
-
-
-/*
- * Keep this alias too so existing LoginForm code continues
- * to work.
- */
-
-export async function googleLogin() {
-  return loginWithGoogle();
-}
-
 
 export async function logout() {
   return logoutUser();

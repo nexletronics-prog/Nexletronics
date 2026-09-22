@@ -19,6 +19,11 @@ import {
   authService,
 } from "../services/auth.service";
 
+/*
+ * ==========================================================
+ * AUTH CONTEXT TYPE
+ * ==========================================================
+ */
 
 interface AuthContextValue {
   user:
@@ -32,22 +37,27 @@ interface AuthContextValue {
     (
       email: string,
       password: string,
-    ) => Promise<void>;
+    ) => Promise<User>;
 
   loginWithGoogle:
-    () => Promise<void>;
+    () => Promise<User>;
 
   register:
     (
       name: string,
       email: string,
       password: string,
-    ) => Promise<void>;
+    ) => Promise<User>;
 
   logout:
     () => Promise<void>;
 }
 
+/*
+ * ==========================================================
+ * CONTEXT
+ * ==========================================================
+ */
 
 export const AuthContext =
   createContext<
@@ -55,6 +65,11 @@ export const AuthContext =
     undefined
   >(undefined);
 
+/*
+ * ==========================================================
+ * PROVIDER
+ * ==========================================================
+ */
 
 export function AuthProvider({
   children,
@@ -68,55 +83,95 @@ export function AuthProvider({
     null,
   );
 
-
   const [
     loading,
     setLoading,
   ] = useState(true);
 
+  /*
+   * ========================================================
+   * FIREBASE AUTH STATE LISTENER
+   * ========================================================
+   */
 
   useEffect(() => {
-    return onAuthStateChanged(
-      auth,
-      (
-        currentUser,
-      ) => {
-        setUser(
+    const unsubscribe =
+      onAuthStateChanged(
+        auth,
+        (
           currentUser,
-        );
+        ) => {
+          setUser(
+            currentUser,
+          );
 
-        setLoading(
-          false,
-        );
-      },
-    );
+          setLoading(
+            false,
+          );
+        },
+      );
+
+    return unsubscribe;
   }, []);
 
+  /*
+   * ========================================================
+   * CONTEXT VALUE
+   * ========================================================
+   */
 
   const value =
     useMemo<AuthContextValue>(
       () => ({
+        /*
+         * Current Firebase user
+         */
         user,
 
+        /*
+         * Initial authentication loading
+         */
         loading,
+
+        /*
+         * ==================================================
+         * EMAIL LOGIN
+         * ==================================================
+         */
 
         login:
           async (
             email,
             password,
           ) => {
-            await authService.login(
-              email,
-              password,
-            );
+            const loggedInUser =
+              await authService.login(
+                email,
+                password,
+              );
+
+            return loggedInUser;
           },
 
+        /*
+         * ==================================================
+         * GOOGLE LOGIN
+         * ==================================================
+         */
 
         loginWithGoogle:
           async () => {
-            await authService.loginWithGoogle();
+            const googleUser =
+              await authService.loginWithGoogle();
+
+            return googleUser;
           },
 
+        /*
+         * ==================================================
+         * REGISTRATION
+         * ==================================================
+         */
 
         register:
           async (
@@ -124,13 +179,21 @@ export function AuthProvider({
             email,
             password,
           ) => {
-            await authService.register(
-              name,
-              email,
-              password,
-            );
+            const registeredUser =
+              await authService.register(
+                name,
+                email,
+                password,
+              );
+
+            return registeredUser;
           },
 
+        /*
+         * ==================================================
+         * LOGOUT
+         * ==================================================
+         */
 
         logout:
           authService.logout,
@@ -141,6 +204,11 @@ export function AuthProvider({
       ],
     );
 
+  /*
+   * ========================================================
+   * PROVIDER
+   * ========================================================
+   */
 
   return (
     <AuthContext.Provider
