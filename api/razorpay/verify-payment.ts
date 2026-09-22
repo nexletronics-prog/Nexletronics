@@ -2,28 +2,81 @@ import crypto from "node:crypto";
 
 import {
   adminDb,
-} from "../_lib/firebase-admin";
+} from "../_lib/firebase-admin.js";
 
 import {
   requireAuth,
-} from "../_lib/require-auth";
+} from "../_lib/require-auth.js";
 
+interface PaymentSessionItem {
+  productId: string;
+  name: string;
+  sku?: string;
+  quantity: number;
+  unitPrice: number;
+  lineTotal: number;
+  image?: string;
+  category?: string;
+}
+
+interface PaymentSessionData {
+  razorpayOrderId: string;
+  receipt?: string;
+
+  userId: string;
+  userEmail?: string;
+
+  customer?: {
+    name?: string;
+    email?: string;
+    phone?: string;
+  };
+
+  items?: PaymentSessionItem[];
+
+  shippingAddress?:
+    | Record<
+        string,
+        unknown
+      >
+    | null;
+
+  billingAddress?:
+    | Record<
+        string,
+        unknown
+      >
+    | null;
+
+  billingAddressSameAsShipping?: boolean;
+
+  subtotal: number;
+  shippingAmount: number;
+  taxAmount: number;
+  discountAmount: number;
+  total: number;
+
+  amountInPaise: number;
+  currency: string;
+  status: string;
+
+  razorpayPaymentId?: string;
+  appOrderId?: string;
+}
 
 function json(
   data: unknown,
   status = 200,
 ) {
-  return Response.json(
-    data,
-    {
-      status,
-      headers: {
-        "Cache-Control": "no-store",
-      },
-    },
-  );
-}
+  return Response.json(data, {
+    status,
 
+    headers: {
+      "Cache-Control":
+        "no-store",
+    },
+  });
+}
 
 function signaturesMatch(
   expected: string,
@@ -54,32 +107,43 @@ function signaturesMatch(
   );
 }
 
+function asString(
+  value: unknown,
+): string {
+  return typeof value === "string"
+    ? value
+    : "";
+}
+
+function asNumber(
+  value: unknown,
+): number {
+  const numberValue =
+    Number(value);
+
+  return Number.isFinite(
+    numberValue,
+  )
+    ? numberValue
+    : 0;
+}
 
 export async function POST(
   request: Request,
 ) {
   try {
-    /*
-     * ======================================================
-     * AUTHENTICATION
-     * ======================================================
-     */
-
     const user =
-      await requireAuth(request);
-
-
-    /*
-     * ======================================================
-     * RAZORPAY CONFIG
-     * ======================================================
-     */
+      await requireAuth(
+        request,
+      );
 
     const keyId =
-      process.env.RAZORPAY_KEY_ID;
+      process.env
+        .RAZORPAY_KEY_ID;
 
     const keySecret =
-      process.env.RAZORPAY_KEY_SECRET;
+      process.env
+        .RAZORPAY_KEY_SECRET;
 
     if (
       !keyId ||
@@ -95,34 +159,23 @@ export async function POST(
       );
     }
 
-
-    /*
-     * ======================================================
-     * REQUEST
-     * ======================================================
-     */
-
     const body =
       await request.json();
 
     const razorpayOrderId =
-      String(
-        body.razorpay_order_id ??
-        "",
+      asString(
+        body?.razorpay_order_id,
       ).trim();
 
     const razorpayPaymentId =
-      String(
-        body.razorpay_payment_id ??
-        "",
+      asString(
+        body?.razorpay_payment_id,
       ).trim();
 
     const razorpaySignature =
-      String(
-        body.razorpay_signature ??
-        "",
+      asString(
+        body?.razorpay_signature,
       ).trim();
-
 
     if (
       !razorpayOrderId ||
@@ -139,13 +192,6 @@ export async function POST(
       );
     }
 
-
-    /*
-     * ======================================================
-     * LOAD OUR TRUSTED PAYMENT SESSION
-     * ======================================================
-     */
-
     const paymentSessionRef =
       adminDb
         .collection(
@@ -157,7 +203,6 @@ export async function POST(
 
     const paymentSessionSnapshot =
       await paymentSessionRef.get();
-
 
     if (
       !paymentSessionSnapshot.exists
@@ -172,10 +217,10 @@ export async function POST(
       );
     }
 
-
     const paymentSession =
-      paymentSessionSnapshot.data();
-
+      paymentSessionSnapshot.data() as
+        | PaymentSessionData
+        | undefined;
 
     if (!paymentSession) {
       return json(
@@ -187,13 +232,6 @@ export async function POST(
         404,
       );
     }
-
-
-    /*
-     * ======================================================
-     * USER OWNERSHIP CHECK
-     * ======================================================
-     */
 
     if (
       paymentSession.userId !==
@@ -209,16 +247,6 @@ export async function POST(
       );
     }
 
-
-    /*
-     * ======================================================
-     * IDEMPOTENCY
-     * ======================================================
-     *
-     * If this payment was already verified, don't create
-     * another Firestore order.
-     */
-
     if (
       paymentSession.status ===
         "verified" &&
@@ -226,26 +254,23 @@ export async function POST(
     ) {
       return json({
         success: true,
+
         verified: true,
+
         orderId:
           paymentSession.appOrderId,
+
         razorpayOrderId,
+
         razorpayPaymentId:
-          paymentSession.razorpayPaymentId ??
+          paymentSession
+            .razorpayPaymentId ??
           razorpayPaymentId,
       });
     }
 
-
-    /*
-     * ======================================================
-     * VERIFY RAZORPAY SIGNATURE
-     * ======================================================
-     */
-
     const signaturePayload =
       `${razorpayOrderId}|${razorpayPaymentId}`;
-
 
     const expectedSignature =
       crypto
@@ -256,8 +281,9 @@ export async function POST(
         .update(
           signaturePayload,
         )
-        .digest("hex");
-
+        .digest(
+          "hex",
+        );
 
     if (
       !signaturesMatch(
@@ -275,22 +301,12 @@ export async function POST(
       );
     }
 
-
-    /*
-     * ======================================================
-     * FETCH PAYMENT FROM RAZORPAY
-     * ======================================================
-     *
-     * Signature verification alone isn't enough for our
-     * order record. We also confirm:
-     *
-     * - correct order
-     * - correct amount
-     * - correct currency
-     * - captured payment
-     *
-     * This is done server-side.
-     */
+    const razorpayAuth =
+      Buffer.from(
+        `${keyId}:${keySecret}`,
+      ).toString(
+        "base64",
+      );
 
     const paymentResponse =
       await fetch(
@@ -302,23 +318,19 @@ export async function POST(
 
           headers: {
             Authorization:
-              `Basic ${Buffer.from(
-                `${keyId}:${keySecret}`,
-              ).toString("base64")}`,
+              `Basic ${razorpayAuth}`,
           },
         },
       );
 
-
     const paymentData =
       await paymentResponse.json();
-
 
     if (
       !paymentResponse.ok
     ) {
       console.error(
-        "Unable to fetch Razorpay payment:",
+        "Razorpay payment lookup failed:",
         paymentData,
       );
 
@@ -332,13 +344,6 @@ export async function POST(
       );
     }
 
-
-    /*
-     * ======================================================
-     * VERIFY ORDER ID
-     * ======================================================
-     */
-
     if (
       paymentData.order_id !==
       razorpayOrderId
@@ -347,34 +352,24 @@ export async function POST(
         {
           success: false,
           error:
-            "Payment does not belong to this order.",
+            "Payment does not belong to this Razorpay order.",
         },
         400,
       );
     }
 
-
-    /*
-     * ======================================================
-     * VERIFY AMOUNT
-     * ======================================================
-     */
-
     const expectedAmount =
-      Number(
-        paymentSession.amountInPaise,
+      asNumber(
+        paymentSession
+          .amountInPaise,
       );
 
     const actualAmount =
-      Number(
+      asNumber(
         paymentData.amount,
       );
 
-
     if (
-      !Number.isInteger(
-        expectedAmount,
-      ) ||
       expectedAmount <= 0 ||
       actualAmount !==
         expectedAmount
@@ -389,16 +384,13 @@ export async function POST(
       );
     }
 
-
-    /*
-     * ======================================================
-     * VERIFY CURRENCY
-     * ======================================================
-     */
+    const expectedCurrency =
+      paymentSession.currency ||
+      "INR";
 
     if (
       paymentData.currency !==
-      paymentSession.currency
+      expectedCurrency
     ) {
       return json(
         {
@@ -410,13 +402,6 @@ export async function POST(
       );
     }
 
-
-    /*
-     * ======================================================
-     * VERIFY CAPTURE STATUS
-     * ======================================================
-     */
-
     if (
       paymentData.status !==
       "captured"
@@ -424,8 +409,13 @@ export async function POST(
       return json(
         {
           success: false,
+
           error:
-            `Payment is not captured. Current status: ${paymentData.status ?? "unknown"}.`,
+            `Payment is not captured. Current status: ${
+              paymentData.status ??
+              "unknown"
+            }.`,
+
           paymentStatus:
             paymentData.status ??
             "unknown",
@@ -434,20 +424,12 @@ export async function POST(
       );
     }
 
-
-    /*
-     * ======================================================
-     * CREATE APPLICATION ORDER
-     * ======================================================
-     */
-
     const orderRef =
       adminDb
         .collection(
           "orders",
         )
         .doc();
-
 
     const sessionItems =
       Array.isArray(
@@ -456,84 +438,59 @@ export async function POST(
         ? paymentSession.items
         : [];
 
-
     const orderItems =
       sessionItems.map(
-        (
-          item: Record<
-            string,
-            unknown
-          >,
-        ) => ({
+        (item) => ({
           productId:
-            String(
-              item.productId ??
-              "",
-            ),
+            item.productId,
 
           name:
-            String(
-              item.name ??
-              "Product",
-            ),
+            item.name,
 
           sku:
-            String(
-              item.sku ??
-              "",
-            ) ||
-            undefined,
+            item.sku ||
+            null,
 
           price:
-            Number(
-              item.unitPrice ??
-              0,
+            asNumber(
+              item.unitPrice,
             ),
 
           quantity:
-            Number(
-              item.quantity ??
-              0,
+            Math.max(
+              1,
+              Math.floor(
+                asNumber(
+                  item.quantity,
+                ),
+              ),
             ),
 
           lineTotal:
-            Number(
-              item.lineTotal ??
-              0,
+            asNumber(
+              item.lineTotal,
             ),
 
           image:
-            String(
-              item.image ??
-              "",
-            ) ||
-            undefined,
+            item.image ||
+            null,
 
           category:
-            String(
-              item.category ??
-              "",
-            ) ||
-            undefined,
+            item.category ||
+            null,
         }),
       );
 
-
     const now =
       new Date();
-
-
-    /*
-     * `pending` here means the business order is awaiting
-     * fulfillment/processing. Payment itself is already paid.
-     */
 
     await orderRef.set({
       userId:
         user.uid,
 
       userEmail:
-        paymentSession.userEmail ??
+        paymentSession
+          .userEmail ??
         user.email ??
         "",
 
@@ -545,11 +502,13 @@ export async function POST(
         orderItems,
 
       shippingAddress:
-        paymentSession.shippingAddress ??
+        paymentSession
+          .shippingAddress ??
         null,
 
       billingAddress:
-        paymentSession.billingAddress ??
+        paymentSession
+          .billingAddress ??
         null,
 
       billingAddressSameAsShipping:
@@ -558,38 +517,32 @@ export async function POST(
         false,
 
       subtotal:
-        Number(
-          paymentSession.subtotal ??
-          0,
+        asNumber(
+          paymentSession.subtotal,
         ),
 
       shipping:
-        Number(
-          paymentSession.shippingAmount ??
-          0,
+        asNumber(
+          paymentSession.shippingAmount,
         ),
 
       tax:
-        Number(
-          paymentSession.taxAmount ??
-          0,
+        asNumber(
+          paymentSession.taxAmount,
         ),
 
       discount:
-        Number(
-          paymentSession.discountAmount ??
-          0,
+        asNumber(
+          paymentSession.discountAmount,
         ),
 
       total:
-        Number(
-          paymentSession.total ??
-          0,
+        asNumber(
+          paymentSession.total,
         ),
 
       currency:
-        paymentSession.currency ??
-        "INR",
+        expectedCurrency,
 
       status:
         "pending",
@@ -625,13 +578,6 @@ export async function POST(
         now,
     });
 
-
-    /*
-     * ======================================================
-     * UPDATE PAYMENT SESSION
-     * ======================================================
-     */
-
     await paymentSessionRef.update({
       status:
         "verified",
@@ -657,13 +603,6 @@ export async function POST(
         now,
     });
 
-
-    /*
-     * ======================================================
-     * SUCCESS
-     * ======================================================
-     */
-
     return json({
       success: true,
 
@@ -679,7 +618,6 @@ export async function POST(
       paymentStatus:
         paymentData.status,
     });
-
   } catch (error) {
     console.error(
       "verify-payment error:",
@@ -689,6 +627,7 @@ export async function POST(
     return json(
       {
         success: false,
+
         error:
           error instanceof Error
             ? error.message

@@ -1,10 +1,10 @@
 import {
   adminDb,
-} from "../_lib/firebase-admin";
+} from "../_lib/firebase-admin.js";
 
 import {
   requireAuth,
-} from "../_lib/require-auth";
+} from "../_lib/require-auth.js";
 
 interface CartItemInput {
   productId: string;
@@ -44,15 +44,12 @@ function json(
   data: unknown,
   status = 200,
 ) {
-  return Response.json(
-    data,
-    {
-      status,
-      headers: {
-        "Cache-Control": "no-store",
-      },
+  return Response.json(data, {
+    status,
+    headers: {
+      "Cache-Control": "no-store",
     },
-  );
+  });
 }
 
 function cleanString(
@@ -79,27 +76,55 @@ function normalizeQuantity(
 }
 
 function normalizeAddress(
-  address: AddressInput | undefined,
+  address:
+    | AddressInput
+    | undefined,
 ) {
   if (!address) {
     return null;
   }
 
   return {
-    name: cleanString(address.name),
-    email: cleanString(address.email),
-    phone: cleanString(address.phone),
-    address: cleanString(address.address),
-    city: cleanString(address.city),
-    state: cleanString(address.state),
-    pincode: cleanString(address.pincode),
+    name: cleanString(
+      address.name,
+    ),
+
+    email: cleanString(
+      address.email,
+    ),
+
+    phone: cleanString(
+      address.phone,
+    ),
+
+    address: cleanString(
+      address.address,
+    ),
+
+    city: cleanString(
+      address.city,
+    ),
+
+    state: cleanString(
+      address.state,
+    ),
+
+    pincode: cleanString(
+      address.pincode,
+    ),
+
     country:
-      cleanString(address.country) ||
-      "India",
-    companyName:
-      cleanString(address.companyName),
-    gstin:
-      cleanString(address.gstin),
+      cleanString(
+        address.country,
+      ) || "India",
+
+    companyName: cleanString(
+      address.companyName,
+    ),
+
+    gstin: cleanString(
+      address.gstin,
+    ),
   };
 }
 
@@ -107,31 +132,23 @@ export async function POST(
   request: Request,
 ) {
   try {
-    /*
-     * ======================================================
-     * AUTHENTICATION
-     * ======================================================
-     */
-
     const user =
-      await requireAuth(request);
-
-
-    /*
-     * ======================================================
-     * ENVIRONMENT
-     * ======================================================
-     */
+      await requireAuth(
+        request,
+      );
 
     const keyId =
-      process.env.RAZORPAY_KEY_ID;
+      process.env
+        .RAZORPAY_KEY_ID;
 
     const keySecret =
-      process.env.RAZORPAY_KEY_SECRET;
+      process.env
+        .RAZORPAY_KEY_SECRET;
 
     if (!keyId) {
       return json(
         {
+          success: false,
           error:
             "RAZORPAY_KEY_ID is missing.",
         },
@@ -142,6 +159,7 @@ export async function POST(
     if (!keySecret) {
       return json(
         {
+          success: false,
           error:
             "RAZORPAY_KEY_SECRET is missing.",
         },
@@ -149,36 +167,26 @@ export async function POST(
       );
     }
 
-
-    /*
-     * ======================================================
-     * REQUEST BODY
-     * ======================================================
-     */
-
     const body =
-      (await request.json()) as CreateOrderBody;
+      (await request.json()) as
+        CreateOrderBody;
 
     if (
       !body ||
-      !Array.isArray(body.items) ||
+      !Array.isArray(
+        body.items,
+      ) ||
       body.items.length === 0
     ) {
       return json(
         {
+          success: false,
           error:
             "Cart is empty.",
         },
         400,
       );
     }
-
-
-    /*
-     * ======================================================
-     * NORMALIZE CART
-     * ======================================================
-     */
 
     const requestedItems =
       body.items
@@ -204,6 +212,7 @@ export async function POST(
     ) {
       return json(
         {
+          success: false,
           error:
             "No valid cart items were provided.",
         },
@@ -211,31 +220,18 @@ export async function POST(
       );
     }
 
-
-    /*
-     * Prevent absurdly large requests.
-     */
     if (
       requestedItems.length > 50
     ) {
       return json(
         {
+          success: false,
           error:
             "Too many cart items.",
         },
         400,
       );
     }
-
-
-    /*
-     * ======================================================
-     * LOAD TRUSTED PRODUCT DATA
-     * ======================================================
-     *
-     * Prices come from Firestore.
-     * The browser cannot override them.
-     */
 
     const uniqueProductIds =
       Array.from(
@@ -246,7 +242,6 @@ export async function POST(
           ),
         ),
       );
-
 
     const productSnapshots =
       await Promise.all(
@@ -261,48 +256,50 @@ export async function POST(
         ),
       );
 
-
     const productMap =
       new Map<
         string,
-        FirebaseFirestore.DocumentData
+        Record<
+          string,
+          unknown
+        >
       >();
 
-
     for (
-      const snapshot of productSnapshots
+      const snapshot
+      of productSnapshots
     ) {
       if (
         snapshot.exists
       ) {
         productMap.set(
           snapshot.id,
-          snapshot.data() ?? {},
+          (
+            snapshot.data() ??
+            {}
+          ) as Record<
+            string,
+            unknown
+          >,
         );
       }
     }
 
-
-    /*
-     * ======================================================
-     * CALCULATE TRUSTED TOTAL
-     * ======================================================
-     */
-
     let subtotal = 0;
 
-    const validatedItems: Array<{
-      productId: string;
-      name: string;
-      quantity: number;
-      unitPrice: number;
-      lineTotal: number;
-      sku: string;
-    }> = [];
-
+    const validatedItems:
+      Array<{
+        productId: string;
+        name: string;
+        quantity: number;
+        unitPrice: number;
+        lineTotal: number;
+        sku: string;
+      }> = [];
 
     for (
-      const item of requestedItems
+      const item
+      of requestedItems
     ) {
       const product =
         productMap.get(
@@ -312,13 +309,13 @@ export async function POST(
       if (!product) {
         return json(
           {
+            success: false,
             error:
               `Product ${item.productId} was not found.`,
           },
           400,
         );
       }
-
 
       const available =
         product.available ??
@@ -328,13 +325,16 @@ export async function POST(
       if (!available) {
         return json(
           {
+            success: false,
             error:
-              `${product.name ?? "A product"} is currently unavailable.`,
+              `${
+                product.name ??
+                "A product"
+              } is currently unavailable.`,
           },
           400,
         );
       }
-
 
       const unitPrice =
         Number(
@@ -342,18 +342,23 @@ export async function POST(
         );
 
       if (
-        !Number.isFinite(unitPrice) ||
+        !Number.isFinite(
+          unitPrice,
+        ) ||
         unitPrice < 0
       ) {
         return json(
           {
+            success: false,
             error:
-              `Invalid price configured for ${product.name ?? item.productId}.`,
+              `Invalid price configured for ${
+                product.name ??
+                item.productId
+              }.`,
           },
           500,
         );
       }
-
 
       const stock =
         Number(
@@ -361,27 +366,39 @@ export async function POST(
         );
 
       if (
-        !Number.isFinite(stock) ||
+        !Number.isFinite(
+          stock,
+        ) ||
         stock < 0
       ) {
         return json(
           {
+            success: false,
             error:
-              `Invalid stock configured for ${product.name ?? item.productId}.`,
+              `Invalid stock configured for ${
+                product.name ??
+                item.productId
+              }.`,
           },
           500,
         );
       }
-
 
       if (
         item.quantity > stock
       ) {
         return json(
           {
+            success: false,
             error:
-              `${product.name ?? "Product"} does not have enough stock.`,
-            availableStock: stock,
+              `${
+                product.name ??
+                "Product"
+              } does not have enough stock.`,
+
+            availableStock:
+              stock,
+
             requestedQuantity:
               item.quantity,
           },
@@ -389,15 +406,11 @@ export async function POST(
         );
       }
 
-
       const lineTotal =
         unitPrice *
         item.quantity;
 
-
-      subtotal +=
-        lineTotal;
-
+      subtotal += lineTotal;
 
       validatedItems.push({
         productId:
@@ -423,17 +436,10 @@ export async function POST(
       });
     }
 
-
     /*
-     * ======================================================
-     * CHECKOUT TOTALS
-     * ======================================================
-     *
-     * We are not inventing a GST rate here.
-     * Shipping/tax/discount remain zero until the
-     * site's actual business rules are configured.
+     * Keep these server-side values here.
+     * Add your actual tax/shipping rules later.
      */
-
     const shippingAmount = 0;
     const taxAmount = 0;
     const discountAmount = 0;
@@ -447,12 +453,10 @@ export async function POST(
           discountAmount,
       );
 
-
     const amountInPaise =
       Math.round(
         total * 100,
       );
-
 
     if (
       !Number.isInteger(
@@ -462,6 +466,7 @@ export async function POST(
     ) {
       return json(
         {
+          success: false,
           error:
             "Calculated order amount is invalid.",
         },
@@ -469,29 +474,19 @@ export async function POST(
       );
     }
 
-
-    /*
-     * ======================================================
-     * CUSTOMER / BILLING DATA
-     * ======================================================
-     */
-
     const shippingAddress =
       normalizeAddress(
         body.shippingAddress,
       );
-
 
     let billingAddress =
       normalizeAddress(
         body.billingAddress,
       );
 
-
     const sameAsShipping =
       body.billingAddressSameAsShipping ===
       true;
-
 
     if (
       sameAsShipping &&
@@ -500,7 +495,6 @@ export async function POST(
       billingAddress =
         shippingAddress;
     }
-
 
     const customerName =
       cleanString(
@@ -511,7 +505,6 @@ export async function POST(
       ) ||
       "";
 
-
     const customerEmail =
       cleanString(
         body.customer?.email,
@@ -521,28 +514,23 @@ export async function POST(
       ) ||
       "";
 
-
     const customerPhone =
       cleanString(
         body.customer?.phone,
       );
 
-
-    /*
-     * ======================================================
-     * RAZORPAY ORDER
-     * ======================================================
-     */
-
     const receipt =
-      `NX-${Date.now()}-${user.uid.slice(0, 8)}`;
-
+      `NX-${Date.now()}-${user.uid.slice(
+        0,
+        8,
+      )}`;
 
     const authHeader =
       Buffer.from(
         `${keyId}:${keySecret}`,
-      ).toString("base64");
-
+      ).toString(
+        "base64",
+      );
 
     const razorpayResponse =
       await fetch(
@@ -558,39 +546,36 @@ export async function POST(
               `Basic ${authHeader}`,
           },
 
-          body:
-            JSON.stringify({
-              amount:
-                amountInPaise,
+          body: JSON.stringify({
+            amount:
+              amountInPaise,
 
-              currency:
-                "INR",
+            currency:
+              "INR",
 
-              receipt,
+            receipt,
 
-              payment_capture:
-                1,
+            payment_capture:
+              1,
 
-              notes: {
-                firebaseUid:
-                  user.uid,
+            notes: {
+              firebaseUid:
+                user.uid,
 
-                email:
-                  customerEmail,
+              email:
+                customerEmail,
 
-                items:
-                  String(
-                    validatedItems.length,
-                  ),
-              },
-            }),
+              items:
+                String(
+                  validatedItems.length,
+                ),
+            },
+          }),
         },
       );
 
-
     const razorpayData =
       await razorpayResponse.json();
-
 
     if (
       !razorpayResponse.ok
@@ -602,19 +587,13 @@ export async function POST(
 
       return json(
         {
+          success: false,
           error:
             "Unable to create Razorpay order.",
         },
         502,
       );
     }
-
-
-    /*
-     * ======================================================
-     * STORE TRUSTED PAYMENT SESSION
-     * ======================================================
-     */
 
     await adminDb
       .collection(
@@ -678,18 +657,8 @@ export async function POST(
           new Date(),
       });
 
-
-    /*
-     * ======================================================
-     * RESPONSE
-     * ======================================================
-     *
-     * Only the PUBLIC Key ID goes to the browser.
-     */
-
     return json({
-      success:
-        true,
+      success: true,
 
       orderId:
         razorpayData.id,
@@ -720,7 +689,6 @@ export async function POST(
       items:
         validatedItems,
     });
-
   } catch (error) {
     console.error(
       "create-order error:",
@@ -729,6 +697,8 @@ export async function POST(
 
     return json(
       {
+        success: false,
+
         error:
           error instanceof Error
             ? error.message

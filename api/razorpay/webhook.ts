@@ -2,7 +2,7 @@ import crypto from "node:crypto";
 
 import {
   adminDb,
-} from "../_lib/firebase-admin";
+} from "../_lib/firebase-admin.js";
 
 function json(
   data: unknown,
@@ -10,8 +10,10 @@ function json(
 ) {
   return Response.json(data, {
     status,
+
     headers: {
-      "Cache-Control": "no-store",
+      "Cache-Control":
+        "no-store",
     },
   });
 }
@@ -21,10 +23,16 @@ function safeEqual(
   received: string,
 ): boolean {
   const expectedBuffer =
-    Buffer.from(expected, "utf8");
+    Buffer.from(
+      expected,
+      "utf8",
+    );
 
   const receivedBuffer =
-    Buffer.from(received, "utf8");
+    Buffer.from(
+      received,
+      "utf8",
+    );
 
   if (
     expectedBuffer.length !==
@@ -48,47 +56,73 @@ function getString(
 }
 
 function getPaymentOrderId(
-  payload: Record<string, unknown>,
+  payload: Record<
+    string,
+    unknown
+  >,
 ): string {
   const payment =
     payload.payment as
-      | Record<string, unknown>
+      | Record<
+          string,
+          unknown
+        >
       | undefined;
 
   const paymentEntity =
     payment?.entity as
-      | Record<string, unknown>
+      | Record<
+          string,
+          unknown
+        >
       | undefined;
 
   const order =
     payload.order as
-      | Record<string, unknown>
+      | Record<
+          string,
+          unknown
+        >
       | undefined;
 
   const orderEntity =
     order?.entity as
-      | Record<string, unknown>
+      | Record<
+          string,
+          unknown
+        >
       | undefined;
 
   return (
     getString(
       paymentEntity?.order_id,
     ) ||
-    getString(orderEntity?.id)
+    getString(
+      orderEntity?.id,
+    )
   );
 }
 
 function getPaymentId(
-  payload: Record<string, unknown>,
+  payload: Record<
+    string,
+    unknown
+  >,
 ): string {
   const payment =
     payload.payment as
-      | Record<string, unknown>
+      | Record<
+          string,
+          unknown
+        >
       | undefined;
 
   const paymentEntity =
     payment?.entity as
-      | Record<string, unknown>
+      | Record<
+          string,
+          unknown
+        >
       | undefined;
 
   return getString(
@@ -97,16 +131,25 @@ function getPaymentId(
 }
 
 function getPaymentStatus(
-  payload: Record<string, unknown>,
+  payload: Record<
+    string,
+    unknown
+  >,
 ): string {
   const payment =
     payload.payment as
-      | Record<string, unknown>
+      | Record<
+          string,
+          unknown
+        >
       | undefined;
 
   const paymentEntity =
     payment?.entity as
-      | Record<string, unknown>
+      | Record<
+          string,
+          unknown
+        >
       | undefined;
 
   return getString(
@@ -138,10 +181,9 @@ export async function POST(
     }
 
     /*
-     * IMPORTANT:
-     * Read the RAW request body.
-     * Do not call request.json() before
-     * signature verification.
+     * Read the raw request body.
+     * Signature validation must use
+     * the exact raw payload.
      */
     const rawBody =
       await request.text();
@@ -168,8 +210,12 @@ export async function POST(
           "sha256",
           webhookSecret,
         )
-        .update(rawBody)
-        .digest("hex");
+        .update(
+          rawBody,
+        )
+        .digest(
+          "hex",
+        );
 
     if (
       !safeEqual(
@@ -191,14 +237,17 @@ export async function POST(
       );
     }
 
-    let body: Record<
-      string,
-      unknown
-    >;
+    let body:
+      Record<
+        string,
+        unknown
+      >;
 
     try {
       body =
-        JSON.parse(rawBody) as Record<
+        JSON.parse(
+          rawBody,
+        ) as Record<
           string,
           unknown
         >;
@@ -214,30 +263,34 @@ export async function POST(
     }
 
     const event =
-      getString(body.event);
+      getString(
+        body.event,
+      );
 
-    /*
-     * Razorpay sends an event identifier in
-     * the webhook headers. We use it for
-     * duplicate-event protection.
-     */
     const eventId =
       request.headers.get(
         "x-razorpay-event-id",
       ) ?? "";
 
+    /*
+     * Deduplicate webhook events.
+     */
     if (eventId) {
       const eventRef =
         adminDb
           .collection(
             "razorpayWebhookEvents",
           )
-          .doc(eventId);
+          .doc(
+            eventId,
+          );
 
       const existingEvent =
         await eventRef.get();
 
-      if (existingEvent.exists) {
+      if (
+        existingEvent.exists
+      ) {
         return json({
           success: true,
           duplicate: true,
@@ -246,7 +299,9 @@ export async function POST(
 
       await eventRef.set({
         eventId,
+
         event,
+
         receivedAt:
           new Date(),
       });
@@ -255,7 +310,10 @@ export async function POST(
     const payload =
       (
         body.payload as
-          | Record<string, unknown>
+          | Record<
+              string,
+              unknown
+            >
           | undefined
       ) ?? {};
 
@@ -265,17 +323,18 @@ export async function POST(
       );
 
     const razorpayPaymentId =
-      getPaymentId(payload);
+      getPaymentId(
+        payload,
+      );
 
     const paymentStatus =
-      getPaymentStatus(payload);
+      getPaymentStatus(
+        payload,
+      );
 
-    /*
-     * Nothing in these events can be mapped
-     * to one of our payment sessions without
-     * the Razorpay order ID.
-     */
-    if (!razorpayOrderId) {
+    if (
+      !razorpayOrderId
+    ) {
       console.log(
         "Webhook received without Razorpay order ID:",
         event,
@@ -293,17 +352,16 @@ export async function POST(
         .collection(
           "paymentSessions",
         )
-        .doc(razorpayOrderId);
+        .doc(
+          razorpayOrderId,
+        );
 
     const paymentSession =
       await paymentSessionRef.get();
 
-    /*
-     * The session may not exist for unrelated
-     * Razorpay events. Acknowledge the webhook
-     * instead of repeatedly retrying it.
-     */
-    if (!paymentSession.exists) {
+    if (
+      !paymentSession.exists
+    ) {
       console.log(
         "No payment session found for webhook:",
         {
@@ -320,11 +378,9 @@ export async function POST(
     }
 
     const sessionData =
-      paymentSession.data() ?? {};
+      paymentSession.data() ??
+      {};
 
-    /*
-     * PAYMENT CAPTURED
-     */
     if (
       event ===
       "payment.captured"
@@ -341,7 +397,8 @@ export async function POST(
 
         razorpayPaymentId:
           razorpayPaymentId ||
-          sessionData.razorpayPaymentId ||
+          sessionData
+            .razorpayPaymentId ||
           null,
 
         razorpayPaymentStatus:
@@ -352,18 +409,15 @@ export async function POST(
           event,
 
         lastWebhookEventId:
-          eventId || null,
+          eventId ||
+          null,
 
         webhookUpdatedAt:
           new Date(),
       });
-    }
-
-    /*
-     * ORDER PAID
-     */
-    else if (
-      event === "order.paid"
+    } else if (
+      event ===
+      "order.paid"
     ) {
       await paymentSessionRef.update({
         status:
@@ -377,7 +431,8 @@ export async function POST(
 
         razorpayPaymentId:
           razorpayPaymentId ||
-          sessionData.razorpayPaymentId ||
+          sessionData
+            .razorpayPaymentId ||
           null,
 
         razorpayPaymentStatus:
@@ -388,29 +443,27 @@ export async function POST(
           event,
 
         lastWebhookEventId:
-          eventId || null,
+          eventId ||
+          null,
 
         webhookUpdatedAt:
           new Date(),
       });
-    }
-
-    /*
-     * PAYMENT FAILED
-     */
-    else if (
+    } else if (
       event ===
       "payment.failed"
     ) {
       await paymentSessionRef.update({
-        status: "failed",
+        status:
+          "failed",
 
         paymentWebhookStatus:
           "failed",
 
         razorpayPaymentId:
           razorpayPaymentId ||
-          sessionData.razorpayPaymentId ||
+          sessionData
+            .razorpayPaymentId ||
           null,
 
         razorpayPaymentStatus:
@@ -421,25 +474,20 @@ export async function POST(
           event,
 
         lastWebhookEventId:
-          eventId || null,
+          eventId ||
+          null,
 
         webhookUpdatedAt:
           new Date(),
       });
-    }
-
-    /*
-     * Other subscribed events are safely
-     * acknowledged without changing the
-     * order/payment state.
-     */
-    else {
+    } else {
       await paymentSessionRef.update({
         lastWebhookEvent:
           event,
 
         lastWebhookEventId:
-          eventId || null,
+          eventId ||
+          null,
 
         webhookUpdatedAt:
           new Date(),
@@ -448,8 +496,11 @@ export async function POST(
 
     return json({
       success: true,
+
       received: true,
+
       event,
+
       razorpayOrderId,
     });
   } catch (error) {
@@ -461,6 +512,7 @@ export async function POST(
     return json(
       {
         success: false,
+
         error:
           error instanceof Error
             ? error.message

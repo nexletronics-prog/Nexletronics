@@ -1,28 +1,46 @@
-import { adminAuth } from "./firebase-admin";
+import {
+  adminAuth,
+} from "./firebase-admin.js";
 
 export async function requireAuth(
   request: Request,
 ) {
   const authorization =
-    request.headers.get("authorization");
+    request.headers.get(
+      "authorization",
+    );
 
   if (!authorization) {
-    throw new Error("Missing Authorization header");
+    throw new Error(
+      "Missing Authorization header",
+    );
   }
 
-  if (!authorization.startsWith("Bearer ")) {
-    throw new Error("Invalid Authorization header");
+  if (
+    !authorization.startsWith(
+      "Bearer ",
+    )
+  ) {
+    throw new Error(
+      "Invalid Authorization header",
+    );
   }
 
   const idToken =
-    authorization.slice("Bearer ".length).trim();
+    authorization
+      .slice("Bearer ".length)
+      .trim();
 
   if (!idToken) {
-    throw new Error("Missing Firebase ID token");
+    throw new Error(
+      "Missing Firebase ID token",
+    );
   }
 
   const decodedToken =
-    await adminAuth.verifyIdToken(idToken);
+    await adminAuth.verifyIdToken(
+      idToken,
+    );
 
   return decodedToken;
 }
