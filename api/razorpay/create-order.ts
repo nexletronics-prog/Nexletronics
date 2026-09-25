@@ -1,10 +1,16 @@
 import {
-  adminDb,
-} from "../_lib/firebase-admin.mjs";
+  cert,
+  getApps,
+  initializeApp,
+} from "firebase-admin/app";
 
 import {
-  requireAuth,
-} from "../_lib/require-auth.mjs";
+  getAuth,
+} from "firebase-admin/auth";
+
+import {
+  getFirestore,
+} from "firebase-admin/firestore";
 
 interface CartItemInput {
   productId: string;
@@ -47,7 +53,8 @@ function json(
   return Response.json(data, {
     status,
     headers: {
-      "Cache-Control": "no-store",
+      "Cache-Control":
+        "no-store",
     },
   });
 }
@@ -85,49 +92,119 @@ function normalizeAddress(
   }
 
   return {
-    name: cleanString(
-      address.name,
-    ),
-
-    email: cleanString(
-      address.email,
-    ),
-
-    phone: cleanString(
-      address.phone,
-    ),
-
-    address: cleanString(
-      address.address,
-    ),
-
-    city: cleanString(
-      address.city,
-    ),
-
-    state: cleanString(
-      address.state,
-    ),
-
-    pincode: cleanString(
-      address.pincode,
-    ),
-
+    name: cleanString(address.name),
+    email: cleanString(address.email),
+    phone: cleanString(address.phone),
+    address: cleanString(address.address),
+    city: cleanString(address.city),
+    state: cleanString(address.state),
+    pincode: cleanString(address.pincode),
     country:
-      cleanString(
-        address.country,
-      ) || "India",
-
-    companyName:
-      cleanString(
-        address.companyName,
-      ),
-
-    gstin:
-      cleanString(
-        address.gstin,
-      ),
+      cleanString(address.country) ||
+      "India",
+    companyName: cleanString(
+      address.companyName,
+    ),
+    gstin: cleanString(
+      address.gstin,
+    ),
   };
+}
+
+function getFirebaseAdmin() {
+  const projectId =
+    process.env.FIREBASE_PROJECT_ID;
+
+  const clientEmail =
+    process.env.FIREBASE_CLIENT_EMAIL;
+
+  const privateKey =
+    process.env.FIREBASE_PRIVATE_KEY;
+
+  if (!projectId) {
+    throw new Error(
+      "Missing FIREBASE_PROJECT_ID",
+    );
+  }
+
+  if (!clientEmail) {
+    throw new Error(
+      "Missing FIREBASE_CLIENT_EMAIL",
+    );
+  }
+
+  if (!privateKey) {
+    throw new Error(
+      "Missing FIREBASE_PRIVATE_KEY",
+    );
+  }
+
+  const app =
+    getApps().length > 0
+      ? getApps()[0]
+      : initializeApp({
+          credential: cert({
+            projectId,
+            clientEmail,
+            privateKey:
+              privateKey.replace(
+                /\\n/g,
+                "\n",
+              ),
+          }),
+
+          databaseURL:
+            "https://nexletronics-81270-default-rtdb.asia-southeast1.firebasedatabase.app",
+        });
+
+  return {
+    auth: getAuth(app),
+    db: getFirestore(app),
+  };
+}
+
+async function requireAuthenticatedUser(
+  request: Request,
+) {
+  const authorization =
+    request.headers.get(
+      "authorization",
+    );
+
+  if (!authorization) {
+    throw new Error(
+      "Missing Authorization header",
+    );
+  }
+
+  if (
+    !authorization.startsWith(
+      "Bearer ",
+    )
+  ) {
+    throw new Error(
+      "Invalid Authorization header",
+    );
+  }
+
+  const idToken =
+    authorization
+      .slice("Bearer ".length)
+      .trim();
+
+  if (!idToken) {
+    throw new Error(
+      "Missing Firebase ID token",
+    );
+  }
+
+  const {
+    auth,
+  } = getFirebaseAdmin();
+
+  return auth.verifyIdToken(
+    idToken,
+  );
 }
 
 export async function POST(
@@ -135,7 +212,7 @@ export async function POST(
 ) {
   try {
     const user =
-      await requireAuth(
+      await requireAuthenticatedUser(
         request,
       );
 
@@ -233,6 +310,10 @@ export async function POST(
       );
     }
 
+    const {
+      db,
+    } = getFirebaseAdmin();
+
     const uniqueProductIds =
       Array.from(
         new Set(
@@ -247,7 +328,7 @@ export async function POST(
       await Promise.all(
         uniqueProductIds.map(
           (productId) =>
-            adminDb
+            db
               .collection(
                 "products",
               )
@@ -387,11 +468,13 @@ export async function POST(
       }
 
       if (
-        item.quantity > stock
+        item.quantity >
+        stock
       ) {
         return json(
           {
             success: false,
+
             error:
               `${
                 product.name ??
@@ -412,7 +495,8 @@ export async function POST(
         unitPrice *
         item.quantity;
 
-      subtotal += lineTotal;
+      subtotal +=
+        lineTotal;
 
       validatedItems.push({
         productId:
@@ -439,8 +523,8 @@ export async function POST(
     }
 
     /*
-     * Keep these values server-side.
-     * Add your real tax/shipping rules later.
+     * These remain zero until your
+     * actual shipping/tax rules are added.
      */
     const shippingAmount = 0;
     const taxAmount = 0;
@@ -610,7 +694,7 @@ export async function POST(
       );
     }
 
-    await adminDb
+    await db
       .collection(
         "paymentSessions",
       )
