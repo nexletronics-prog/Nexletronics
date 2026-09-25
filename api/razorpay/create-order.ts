@@ -1,15 +1,9 @@
-import {
-  cert,
-  getApps,
-  initializeApp,
-} from "firebase-admin/app";
-
-import {
-  getAuth,
+import type {
+  Auth,
 } from "firebase-admin/auth";
 
-import {
-  getFirestore,
+import type {
+  Firestore,
 } from "firebase-admin/firestore";
 
 interface CartItemInput {
@@ -53,6 +47,8 @@ function json(
   return Response.json(data, {
     status,
     headers: {
+      "Content-Type":
+        "application/json",
       "Cache-Control":
         "no-store",
     },
@@ -92,26 +88,92 @@ function normalizeAddress(
   }
 
   return {
-    name: cleanString(address.name),
-    email: cleanString(address.email),
-    phone: cleanString(address.phone),
-    address: cleanString(address.address),
-    city: cleanString(address.city),
-    state: cleanString(address.state),
-    pincode: cleanString(address.pincode),
+    name: cleanString(
+      address.name,
+    ),
+
+    email: cleanString(
+      address.email,
+    ),
+
+    phone: cleanString(
+      address.phone,
+    ),
+
+    address: cleanString(
+      address.address,
+    ),
+
+    city: cleanString(
+      address.city,
+    ),
+
+    state: cleanString(
+      address.state,
+    ),
+
+    pincode: cleanString(
+      address.pincode,
+    ),
+
     country:
-      cleanString(address.country) ||
-      "India",
-    companyName: cleanString(
-      address.companyName,
-    ),
-    gstin: cleanString(
-      address.gstin,
-    ),
+      cleanString(
+        address.country,
+      ) || "India",
+
+    companyName:
+      cleanString(
+        address.companyName,
+      ),
+
+    gstin:
+      cleanString(
+        address.gstin,
+      ),
   };
 }
 
-function getFirebaseAdmin() {
+async function getFirebaseAdmin(): Promise<{
+  auth: Auth;
+  db: Firestore;
+}> {
+  /*
+   * Lazy imports.
+   *
+   * This is intentional so a Firebase Admin
+   * module-resolution problem becomes a normal
+   * JSON error instead of a Vercel function
+   * invocation crash.
+   */
+  const appModule =
+    await import(
+      "firebase-admin/app"
+    );
+
+  const authModule =
+    await import(
+      "firebase-admin/auth"
+    );
+
+  const firestoreModule =
+    await import(
+      "firebase-admin/firestore"
+    );
+
+  const {
+    cert,
+    getApps,
+    initializeApp,
+  } = appModule;
+
+  const {
+    getAuth,
+  } = authModule;
+
+  const {
+    getFirestore,
+  } = firestoreModule;
+
   const projectId =
     process.env.FIREBASE_PROJECT_ID;
 
@@ -139,7 +201,7 @@ function getFirebaseAdmin() {
     );
   }
 
-  const app =
+  const firebaseAdminApp =
     getApps().length > 0
       ? getApps()[0]
       : initializeApp({
@@ -158,8 +220,15 @@ function getFirebaseAdmin() {
         });
 
   return {
-    auth: getAuth(app),
-    db: getFirestore(app),
+    auth:
+      getAuth(
+        firebaseAdminApp,
+      ),
+
+    db:
+      getFirestore(
+        firebaseAdminApp,
+      ),
   };
 }
 
@@ -200,7 +269,7 @@ async function requireAuthenticatedUser(
 
   const {
     auth,
-  } = getFirebaseAdmin();
+  } = await getFirebaseAdmin();
 
   return auth.verifyIdToken(
     idToken,
@@ -211,10 +280,19 @@ export async function POST(
   request: Request,
 ) {
   try {
+    console.log(
+      "[create-order] Function started",
+    );
+
     const user =
       await requireAuthenticatedUser(
         request,
       );
+
+    console.log(
+      "[create-order] Firebase user verified:",
+      user.uid,
+    );
 
     const keyId =
       process.env.RAZORPAY_KEY_ID;
@@ -312,7 +390,11 @@ export async function POST(
 
     const {
       db,
-    } = getFirebaseAdmin();
+    } = await getFirebaseAdmin();
+
+    console.log(
+      "[create-order] Firestore initialized",
+    );
 
     const uniqueProductIds =
       Array.from(
@@ -522,10 +604,6 @@ export async function POST(
       });
     }
 
-    /*
-     * These remain zero until your
-     * actual shipping/tax rules are added.
-     */
     const shippingAmount = 0;
     const taxAmount = 0;
     const discountAmount = 0;
@@ -618,6 +696,10 @@ export async function POST(
         "base64",
       );
 
+    console.log(
+      "[create-order] Creating Razorpay order",
+    );
+
     const razorpayResponse =
       await fetch(
         "https://api.razorpay.com/v1/orders",
@@ -667,7 +749,7 @@ export async function POST(
       !razorpayResponse.ok
     ) {
       console.error(
-        "Razorpay order creation failed:",
+        "[create-order] Razorpay error:",
         razorpayData,
       );
 
@@ -676,6 +758,9 @@ export async function POST(
           success: false,
           error:
             "Unable to create Razorpay order.",
+
+          razorpayStatus:
+            razorpayResponse.status,
         },
         502,
       );
@@ -756,6 +841,11 @@ export async function POST(
           new Date(),
       });
 
+    console.log(
+      "[create-order] Payment session saved:",
+      razorpayData.id,
+    );
+
     return json({
       success: true,
 
@@ -790,7 +880,7 @@ export async function POST(
     });
   } catch (error) {
     console.error(
-      "create-order error:",
+      "[create-order] FATAL ERROR:",
       error,
     );
 
@@ -801,7 +891,12 @@ export async function POST(
         error:
           error instanceof Error
             ? error.message
-            : "Internal server error.",
+            : String(error),
+
+        errorName:
+          error instanceof Error
+            ? error.name
+            : "UnknownError",
       },
       500,
     );
