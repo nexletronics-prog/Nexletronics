@@ -2,7 +2,7 @@ import crypto from "node:crypto";
 
 import {
   adminDb,
-} from "../_lib/firebase-admin.js";
+} from "../_lib/firebase-admin.mjs";
 
 function json(
   data: unknown,
@@ -181,9 +181,8 @@ export async function POST(
     }
 
     /*
-     * Read the raw request body.
-     * Signature validation must use
-     * the exact raw payload.
+     * IMPORTANT:
+     * Read the exact raw request body.
      */
     const rawBody =
       await request.text();
@@ -204,6 +203,10 @@ export async function POST(
       );
     }
 
+    /*
+     * Calculate HMAC SHA-256 using
+     * the webhook secret.
+     */
     const expectedSignature =
       crypto
         .createHmac(
@@ -267,14 +270,16 @@ export async function POST(
         body.event,
       );
 
+    /*
+     * Razorpay provides an event ID header.
+     * We use it to avoid processing the
+     * same webhook repeatedly.
+     */
     const eventId =
       request.headers.get(
         "x-razorpay-event-id",
       ) ?? "";
 
-    /*
-     * Deduplicate webhook events.
-     */
     if (eventId) {
       const eventRef =
         adminDb
@@ -293,6 +298,7 @@ export async function POST(
       ) {
         return json({
           success: true,
+
           duplicate: true,
         });
       }
@@ -332,6 +338,10 @@ export async function POST(
         payload,
       );
 
+    /*
+     * Ignore webhook events that don't
+     * contain an order ID.
+     */
     if (
       !razorpayOrderId
     ) {
@@ -342,7 +352,9 @@ export async function POST(
 
       return json({
         success: true,
+
         ignored: true,
+
         event,
       });
     }
@@ -359,6 +371,10 @@ export async function POST(
     const paymentSession =
       await paymentSessionRef.get();
 
+    /*
+     * A webhook can belong to another
+     * Razorpay object not created by our app.
+     */
     if (
       !paymentSession.exists
     ) {
@@ -372,7 +388,9 @@ export async function POST(
 
       return json({
         success: true,
+
         ignored: true,
+
         event,
       });
     }
@@ -381,6 +399,9 @@ export async function POST(
       paymentSession.data() ??
       {};
 
+    /*
+     * PAYMENT CAPTURED
+     */
     if (
       event ===
       "payment.captured"
@@ -415,7 +436,12 @@ export async function POST(
         webhookUpdatedAt:
           new Date(),
       });
-    } else if (
+    }
+
+    /*
+     * ORDER PAID
+     */
+    else if (
       event ===
       "order.paid"
     ) {
@@ -449,7 +475,12 @@ export async function POST(
         webhookUpdatedAt:
           new Date(),
       });
-    } else if (
+    }
+
+    /*
+     * PAYMENT FAILED
+     */
+    else if (
       event ===
       "payment.failed"
     ) {
@@ -480,7 +511,13 @@ export async function POST(
         webhookUpdatedAt:
           new Date(),
       });
-    } else {
+    }
+
+    /*
+     * Any other subscribed event is
+     * safely acknowledged and recorded.
+     */
+    else {
       await paymentSessionRef.update({
         lastWebhookEvent:
           event,

@@ -1,10 +1,10 @@
 import {
   adminDb,
-} from "../_lib/firebase-admin.js";
+} from "../_lib/firebase-admin.mjs";
 
 import {
   requireAuth,
-} from "../_lib/require-auth.js";
+} from "../_lib/require-auth.mjs";
 
 interface CartItemInput {
   productId: string;
@@ -118,13 +118,15 @@ function normalizeAddress(
         address.country,
       ) || "India",
 
-    companyName: cleanString(
-      address.companyName,
-    ),
+    companyName:
+      cleanString(
+        address.companyName,
+      ),
 
-    gstin: cleanString(
-      address.gstin,
-    ),
+    gstin:
+      cleanString(
+        address.gstin,
+      ),
   };
 }
 
@@ -138,12 +140,10 @@ export async function POST(
       );
 
     const keyId =
-      process.env
-        .RAZORPAY_KEY_ID;
+      process.env.RAZORPAY_KEY_ID;
 
     const keySecret =
-      process.env
-        .RAZORPAY_KEY_SECRET;
+      process.env.RAZORPAY_KEY_SECRET;
 
     if (!keyId) {
       return json(
@@ -251,7 +251,9 @@ export async function POST(
               .collection(
                 "products",
               )
-              .doc(productId)
+              .doc(
+                productId,
+              )
               .get(),
         ),
       );
@@ -437,8 +439,8 @@ export async function POST(
     }
 
     /*
-     * Keep these server-side values here.
-     * Add your actual tax/shipping rules later.
+     * Keep these values server-side.
+     * Add your real tax/shipping rules later.
      */
     const shippingAmount = 0;
     const taxAmount = 0;
@@ -590,6 +592,19 @@ export async function POST(
           success: false,
           error:
             "Unable to create Razorpay order.",
+        },
+        502,
+      );
+    }
+
+    if (
+      !razorpayData?.id
+    ) {
+      return json(
+        {
+          success: false,
+          error:
+            "Razorpay did not return an order ID.",
         },
         502,
       );

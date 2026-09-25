@@ -2,11 +2,11 @@ import crypto from "node:crypto";
 
 import {
   adminDb,
-} from "../_lib/firebase-admin.js";
+} from "../_lib/firebase-admin.mjs";
 
 import {
   requireAuth,
-} from "../_lib/require-auth.js";
+} from "../_lib/require-auth.mjs";
 
 interface PaymentSessionItem {
   productId: string;
@@ -138,12 +138,10 @@ export async function POST(
       );
 
     const keyId =
-      process.env
-        .RAZORPAY_KEY_ID;
+      process.env.RAZORPAY_KEY_ID;
 
     const keySecret =
-      process.env
-        .RAZORPAY_KEY_SECRET;
+      process.env.RAZORPAY_KEY_SECRET;
 
     if (
       !keyId ||
@@ -247,6 +245,11 @@ export async function POST(
       );
     }
 
+    /*
+     * Idempotency:
+     * never create another application
+     * order for an already verified payment.
+     */
     if (
       paymentSession.status ===
         "verified" &&
@@ -308,6 +311,9 @@ export async function POST(
         "base64",
       );
 
+    /*
+     * Ask Razorpay for the actual payment.
+     */
     const paymentResponse =
       await fetch(
         `https://api.razorpay.com/v1/payments/${encodeURIComponent(
@@ -344,6 +350,10 @@ export async function POST(
       );
     }
 
+    /*
+     * Verify that the payment belongs
+     * to the expected Razorpay order.
+     */
     if (
       paymentData.order_id !==
       razorpayOrderId
@@ -358,6 +368,9 @@ export async function POST(
       );
     }
 
+    /*
+     * Verify amount.
+     */
     const expectedAmount =
       asNumber(
         paymentSession
@@ -384,6 +397,9 @@ export async function POST(
       );
     }
 
+    /*
+     * Verify currency.
+     */
     const expectedCurrency =
       paymentSession.currency ||
       "INR";
@@ -402,6 +418,10 @@ export async function POST(
       );
     }
 
+    /*
+     * Only captured payments become
+     * paid application orders.
+     */
     if (
       paymentData.status !==
       "captured"
@@ -484,6 +504,10 @@ export async function POST(
     const now =
       new Date();
 
+    /*
+     * Create the actual application
+     * order in Firestore.
+     */
     await orderRef.set({
       userId:
         user.uid,
@@ -578,6 +602,10 @@ export async function POST(
         now,
     });
 
+    /*
+     * Mark our payment session as
+     * completely verified.
+     */
     await paymentSessionRef.update({
       status:
         "verified",
