@@ -10,7 +10,7 @@ import {
 
 import {
   doc,
-  onSnapshot,
+  getDoc,
   serverTimestamp,
   setDoc,
 } from "firebase/firestore";
@@ -27,12 +27,6 @@ import {
   useAuth,
 } from "../hooks/useAuth";
 
-
-/*
- * ==========================================================
- * TYPES
- * ==========================================================
- */
 
 export interface CartItem {
   product: Product;
@@ -87,23 +81,11 @@ interface CartContextValue {
 }
 
 
-/*
- * ==========================================================
- * CONTEXT
- * ==========================================================
- */
-
 const CartContext =
   createContext<
     CartContextValue | undefined
   >(undefined);
 
-
-/*
- * ==========================================================
- * CONSTANTS
- * ==========================================================
- */
 
 const GUEST_CART_KEY =
   "nexletronics-cart:guest";
@@ -115,140 +97,19 @@ const CART_COLLECTION =
 
 /*
  * ==========================================================
- * REMOVE UNDEFINED VALUES
- * ==========================================================
- *
- * Firestore does not accept undefined values.
- *
- * Product objects can contain optional fields such as:
- *
- * image
- * imageUrl
- * thumbnailImage
- * description
- * etc.
- *
- * This function recursively removes undefined values before
- * anything is written to Firestore.
- */
-
-function removeUndefined(
-  value: unknown,
-): unknown {
-
-  if (
-    value ===
-    undefined
-  ) {
-
-    return undefined;
-  }
-
-
-  if (
-    value ===
-    null
-  ) {
-
-    return null;
-  }
-
-
-  if (
-    Array.isArray(
-      value,
-    )
-  ) {
-
-    return value
-      .map(
-        (
-          item,
-        ) =>
-          removeUndefined(
-            item,
-          ),
-      )
-      .filter(
-        (
-          item,
-        ) =>
-          item !==
-          undefined,
-      );
-  }
-
-
-  if (
-    typeof value ===
-    "object"
-  ) {
-
-    const result:
-      Record<
-        string,
-        unknown
-      > = {};
-
-
-    for (
-      const [
-        key,
-        entry,
-      ] of Object.entries(
-        value as Record<
-          string,
-          unknown
-        >,
-      )
-    ) {
-
-      const cleaned =
-        removeUndefined(
-          entry,
-        );
-
-
-      if (
-        cleaned !==
-        undefined
-      ) {
-
-        result[
-          key
-        ] =
-          cleaned;
-      }
-    }
-
-
-    return result;
-  }
-
-
-  return value;
-}
-
-
-/*
- * ==========================================================
- * PRODUCT VALIDATION
+ * VALIDATE PRODUCT
  * ==========================================================
  */
 
 function isValidProduct(
   value: unknown,
 ): value is Product {
-
   if (
     !value ||
-    typeof value !==
-      "object"
+    typeof value !== "object"
   ) {
-
     return false;
   }
-
 
   const product =
     value as {
@@ -257,7 +118,6 @@ function isValidProduct(
       stock?: unknown;
       available?: unknown;
     };
-
 
   return (
     typeof product.id ===
@@ -292,34 +152,23 @@ function isValidProduct(
 function normalizeCart(
   value: unknown,
 ): CartItem[] {
-
   if (
-    !Array.isArray(
-      value,
-    )
+    !Array.isArray(value)
   ) {
-
     return [];
   }
 
-
-  const result:
-    CartItem[] = [];
-
+  const result: CartItem[] = [];
 
   for (
     const rawItem of value
   ) {
-
     if (
       !rawItem ||
-      typeof rawItem !==
-        "object"
+      typeof rawItem !== "object"
     ) {
-
       continue;
     }
-
 
     const item =
       rawItem as {
@@ -327,72 +176,54 @@ function normalizeCart(
         quantity?: unknown;
       };
 
-
     if (
       !isValidProduct(
         item.product,
       )
     ) {
-
       continue;
     }
 
-
-    const numericQuantity =
+    const quantity =
       Number(
         item.quantity,
       );
 
+    /*
+     * Never allow NaN, Infinity or
+     * zero quantities.
+     */
 
     if (
       !Number.isFinite(
-        numericQuantity,
+        quantity,
       ) ||
-      numericQuantity <=
-        0
+      quantity <= 0
     ) {
-
       continue;
     }
 
-
-    const stock =
+    const maxStock =
       Math.max(
-        1,
-        Math.floor(
-          Number(
-            item.product.stock,
-          ),
+        Number(
+          item.product.stock,
         ),
+        1,
       );
 
-
-    /*
-     * Clean the product before keeping it in state.
-     */
-
-    const cleanedProduct =
-      removeUndefined(
-        item.product,
-      ) as Product;
-
-
     result.push({
-
       product:
-        cleanedProduct,
+        item.product,
 
       quantity:
         Math.min(
           Math.floor(
-            numericQuantity,
+            quantity,
           ),
-          stock,
+          maxStock,
         ),
-
     });
   }
-
 
   return result;
 }
@@ -405,39 +236,20 @@ function normalizeCart(
  */
 
 function loadGuestCart(): CartItem[] {
-
   try {
-
     const raw =
       localStorage.getItem(
         GUEST_CART_KEY,
       );
 
-
-    if (
-      !raw
-    ) {
-
+    if (!raw) {
       return [];
     }
 
-
     return normalizeCart(
-      JSON.parse(
-        raw,
-      ),
+      JSON.parse(raw),
     );
-
-  } catch (
-    error
-  ) {
-
-    console.error(
-      "[CART] Guest load failed:",
-      error,
-    );
-
-
+  } catch {
     return [];
   }
 }
@@ -446,49 +258,18 @@ function loadGuestCart(): CartItem[] {
 function saveGuestCart(
   items: CartItem[],
 ): void {
-
   try {
-
     localStorage.setItem(
       GUEST_CART_KEY,
       JSON.stringify(
-        removeUndefined(
-          items,
-        ),
+        items,
       ),
     );
-
-  } catch (
-    error
-  ) {
-
-    console.error(
-      "[CART] Guest save failed:",
-      error,
-    );
+  } catch {
+    /*
+     * Ignore localStorage errors.
+     */
   }
-}
-
-
-/*
- * ==========================================================
- * CONVERT CART FOR FIRESTORE
- * ==========================================================
- */
-
-function prepareCartForFirestore(
-  items: CartItem[],
-): CartItem[] {
-
-  const normalized =
-    normalizeCart(
-      items,
-    );
-
-
-  return removeUndefined(
-    normalized,
-  ) as CartItem[];
 }
 
 
@@ -503,19 +284,11 @@ export function CartProvider({
 }: {
   children: ReactNode;
 }) {
-
   const {
     user,
     loading: authLoading,
-  } =
-    useAuth();
+  } = useAuth();
 
-
-  /*
-   * ========================================================
-   * STATE
-   * ========================================================
-   */
 
   const [
     items,
@@ -527,416 +300,149 @@ export function CartProvider({
 
 
   const [
-    ready,
-    setReady,
+    initialized,
+    setInitialized,
   ] =
     useState(false);
 
 
   /*
-   * ========================================================
-   * UID REF
-   * ========================================================
+   * Keeps track of the data that has already been persisted.
+   *
+   * This prevents duplicate writes when React runs effects more
+   * than once in development/StrictMode.
    */
 
-  const activeUidRef =
-    useRef<
-      string | null
-    >(null);
+  const lastPersistedJsonRef =
+    useRef("");
 
 
   /*
-   * ========================================================
-   * FIRESTORE LISTENER
-   * ========================================================
+   * ==========================================================
+   * LOAD CART WHEN ACCOUNT CHANGES
+   * ==========================================================
+   *
+   * IMPORTANT:
+   *
+   * We intentionally use getDoc() once instead of onSnapshot().
+   *
+   * This removes a permanent realtime Firestore listener from
+   * every browser tab.
    */
 
   useEffect(() => {
-
-    if (
-      authLoading
-    ) {
-
-      return;
-    }
+    let cancelled = false;
 
 
-    /*
-     * ------------------------------------------------------
-     * GUEST
-     * ------------------------------------------------------
-     */
+    async function loadCart() {
+      /*
+       * ------------------------------------------------------
+       * WAIT FOR AUTH
+       * ------------------------------------------------------
+       */
 
-    if (
-      !user
-    ) {
+      if (
+        authLoading
+      ) {
+        return;
+      }
 
-      activeUidRef.current =
-        null;
 
+      /*
+       * ------------------------------------------------------
+       * GUEST
+       * ------------------------------------------------------
+       */
+
+      if (!user) {
+        const guestItems =
+          loadGuestCart();
+
+        if (cancelled) {
+          return;
+        }
+
+        lastPersistedJsonRef.current =
+          JSON.stringify(
+            guestItems,
+          );
+
+        setItems(
+          guestItems,
+        );
+
+        setInitialized(
+          true,
+        );
+
+        console.log(
+          "[CART ACCOUNT]",
+          {
+            uid: null,
+            email: null,
+          },
+        );
+
+        console.log(
+          "[CART GUEST LOAD]",
+          {
+            itemCount:
+              guestItems.length,
+          },
+        );
+
+        return;
+      }
+
+
+      /*
+       * ------------------------------------------------------
+       * LOGGED-IN CUSTOMER
+       * ------------------------------------------------------
+       */
+
+      const uid =
+        user.uid;
+
+
+      /*
+       * Never display the previous account's cart while loading
+       * the new account.
+       */
 
       setItems(
-        loadGuestCart(),
+        [],
+      );
+
+      setInitialized(
+        false,
       );
 
 
-      setReady(
-        true,
-      );
+      lastPersistedJsonRef.current =
+        "";
 
 
       console.log(
         "[CART ACCOUNT]",
         {
-          uid:
-            null,
-
+          uid,
           email:
-            null,
+            user.email ?? null,
         },
       );
 
 
-      return;
-    }
+      const cartRef =
+        doc(
+          db,
+          CART_COLLECTION,
+          uid,
+        );
 
-
-    /*
-     * ------------------------------------------------------
-     * CUSTOMER
-     * ------------------------------------------------------
-     */
-
-    const uid =
-      user.uid;
-
-
-    activeUidRef.current =
-      uid;
-
-
-    setItems(
-      [],
-    );
-
-
-    setReady(
-      false,
-    );
-
-
-    console.log(
-      "[CART ACCOUNT]",
-      {
-        uid,
-        email:
-          user.email ??
-          null,
-      },
-    );
-
-
-    const cartRef =
-      doc(
-        db,
-        CART_COLLECTION,
-        uid,
-      );
-
-
-    console.log(
-      "[CART LISTENER]",
-      {
-        uid,
-        path:
-          cartRef.path,
-      },
-    );
-
-
-    const unsubscribe =
-      onSnapshot(
-        cartRef,
-
-        async (
-          snapshot,
-        ) => {
-
-          /*
-           * Ignore callbacks belonging to an old account.
-           */
-
-          if (
-            activeUidRef.current !==
-            uid
-          ) {
-
-            return;
-          }
-
-
-          console.log(
-            "[CART DOCUMENT]",
-            {
-              uid,
-              path:
-                cartRef.path,
-
-              exists:
-                snapshot.exists(),
-
-              data:
-                snapshot.exists()
-                  ? snapshot.data()
-                  : null,
-            },
-          );
-
-
-          /*
-           * ------------------------------------------------
-           * NEW CUSTOMER CART
-           * ------------------------------------------------
-           */
-
-          if (
-            !snapshot.exists()
-          ) {
-
-            try {
-
-              await setDoc(
-                cartRef,
-
-                {
-                  userId:
-                    uid,
-
-                  items:
-                    [],
-
-                  updatedAt:
-                    serverTimestamp(),
-                },
-              );
-
-
-              console.log(
-                "[CART CREATED]",
-                {
-                  uid,
-                  path:
-                    cartRef.path,
-                },
-              );
-
-            } catch (
-              error
-            ) {
-
-              console.error(
-                "[CART CREATE FAILED]",
-                {
-                  uid,
-                  error,
-                },
-              );
-
-            }
-
-
-            if (
-              activeUidRef.current ===
-              uid
-            ) {
-
-              setItems(
-                [],
-              );
-
-
-              setReady(
-                true,
-              );
-
-            }
-
-
-            return;
-          }
-
-
-          /*
-           * ------------------------------------------------
-           * EXISTING CUSTOMER CART
-           * ------------------------------------------------
-           */
-
-          const data =
-            snapshot.data();
-
-
-          const safeItems =
-            normalizeCart(
-              data.items,
-            );
-
-
-          console.log(
-            "[CART LOADED]",
-            {
-              uid,
-              path:
-                cartRef.path,
-
-              itemCount:
-                safeItems.length,
-
-              items:
-                safeItems,
-            },
-          );
-
-
-          /*
-           * Repair old documents containing undefined /
-           * invalid quantities.
-           *
-           * Because Firestore itself cannot store undefined,
-           * this primarily repairs malformed legacy objects
-           * or invalid quantities.
-           */
-
-          const cleanedForFirestore =
-            prepareCartForFirestore(
-              safeItems,
-            );
-
-
-          /*
-           * Rewrite only if the serialized representation
-           * differs.
-           */
-
-          try {
-
-            const safeJson =
-              JSON.stringify(
-                cleanedForFirestore,
-              );
-
-
-            const currentJson =
-              JSON.stringify(
-                data.items ??
-                  [],
-              );
-
-
-            if (
-              safeJson !==
-              currentJson
-            ) {
-
-              await setDoc(
-                cartRef,
-
-                {
-                  userId:
-                    uid,
-
-                  items:
-                    cleanedForFirestore,
-
-                  updatedAt:
-                    serverTimestamp(),
-                },
-
-                {
-                  merge:
-                    true,
-                },
-              );
-
-            }
-
-          } catch (
-            error
-          ) {
-
-            console.error(
-              "[CART REPAIR FAILED]",
-              {
-                uid,
-                error,
-              },
-            );
-
-          }
-
-
-          /*
-           * Apply THIS customer's cart only.
-           */
-
-          if (
-            activeUidRef.current ===
-            uid
-          ) {
-
-            setItems(
-              safeItems,
-            );
-
-
-            setReady(
-              true,
-            );
-
-          }
-
-        },
-
-        (
-          error,
-        ) => {
-
-          console.error(
-            "[CART REALTIME ERROR]",
-            {
-              uid,
-              path:
-                cartRef.path,
-
-              error,
-            },
-          );
-
-
-          if (
-            activeUidRef.current ===
-            uid
-          ) {
-
-            setItems(
-              [],
-            );
-
-
-            setReady(
-              false,
-            );
-
-          }
-
-        },
-      );
-
-
-    return () => {
 
       console.log(
-        "[CART LISTENER CLEANUP]",
+        "[CART LOAD]",
         {
           uid,
           path:
@@ -945,10 +451,167 @@ export function CartProvider({
       );
 
 
-      unsubscribe();
+      try {
+        /*
+         * ONE FIRESTORE READ.
+         */
 
+        const snapshot =
+          await getDoc(
+            cartRef,
+          );
+
+
+        if (cancelled) {
+          return;
+        }
+
+
+        /*
+         * ----------------------------------------------------
+         * CART DOES NOT EXIST
+         * ----------------------------------------------------
+         *
+         * Do NOT create an empty cart document here.
+         *
+         * The document will be created only when the customer
+         * actually adds/changes/clears their cart.
+         */
+
+        if (
+          !snapshot.exists()
+        ) {
+          setItems(
+            [],
+          );
+
+          setInitialized(
+            true,
+          );
+
+          lastPersistedJsonRef.current =
+            JSON.stringify(
+              [],
+            );
+
+          console.log(
+            "[CART EMPTY]",
+            {
+              uid,
+              path:
+                cartRef.path,
+            },
+          );
+
+          return;
+        }
+
+
+        /*
+         * ----------------------------------------------------
+         * EXISTING CART
+         * ----------------------------------------------------
+         */
+
+        const data =
+          snapshot.data();
+
+
+        const safeItems =
+          normalizeCart(
+            data.items,
+          );
+
+
+        if (cancelled) {
+          return;
+        }
+
+
+        /*
+         * Remember what was loaded so the initial load itself
+         * does not immediately trigger another Firestore write.
+         */
+
+        lastPersistedJsonRef.current =
+          JSON.stringify(
+            safeItems,
+          );
+
+
+        setItems(
+          safeItems,
+        );
+
+
+        setInitialized(
+          true,
+        );
+
+
+        console.log(
+          "[CART LOADED]",
+          {
+            uid,
+            path:
+              cartRef.path,
+
+            itemCount:
+              safeItems.length,
+
+            items:
+              safeItems,
+          },
+        );
+
+
+        /*
+         * IMPORTANT:
+         *
+         * We do NOT automatically repair/rewrite the cart here.
+         *
+         * This prevents an unnecessary write every time a cart is
+         * loaded.
+         */
+
+      } catch (
+        error
+      ) {
+        console.error(
+          "[CART LOAD FAILED]",
+          {
+            uid,
+            path:
+              cartRef.path,
+            error,
+          },
+        );
+
+
+        if (cancelled) {
+          return;
+        }
+
+
+        setItems(
+          [],
+        );
+
+
+        setInitialized(
+          false,
+        );
+      }
+    }
+
+
+    void loadCart();
+
+
+    return () => {
+      cancelled =
+        true;
     };
-
   }, [
     authLoading,
     user?.uid,
@@ -956,45 +619,82 @@ export function CartProvider({
 
 
   /*
-   * ========================================================
-   * FIRESTORE SAVE
-   * ========================================================
+   * ==========================================================
+   * PERSIST CART
+   * ==========================================================
+   *
+   * This is the only automatic persistence mechanism.
+   *
+   * It writes only when the cart contents actually changed.
    */
 
-  async function saveCustomerCart(
-    uid: string,
-    nextItems: CartItem[],
-  ): Promise<void> {
-
+  useEffect(() => {
     if (
-      !user ||
-      user.uid !==
-        uid
+      authLoading ||
+      !initialized
     ) {
-
       return;
     }
 
 
+    const safeItems =
+      normalizeCart(
+        items,
+      );
+
+
+    const serialized =
+      JSON.stringify(
+        safeItems,
+      );
+
+
+    /*
+     * Nothing changed since the last successful load/save.
+     */
+
     if (
-      activeUidRef.current !==
-      uid
+      serialized ===
+      lastPersistedJsonRef.current
     ) {
+      return;
+    }
+
+
+    /*
+     * ========================================================
+     * GUEST
+     * ========================================================
+     */
+
+    if (!user) {
+      saveGuestCart(
+        safeItems,
+      );
+
+      lastPersistedJsonRef.current =
+        serialized;
+
+      console.log(
+        "[CART SAVE GUEST]",
+        {
+          itemCount:
+            safeItems.length,
+        },
+      );
 
       return;
     }
 
 
     /*
-     * This is the critical fix.
-     *
-     * Every undefined property is removed before Firestore.
+     * ========================================================
+     * LOGGED-IN CUSTOMER
+     * ========================================================
      */
 
-    const safeItems =
-      prepareCartForFirestore(
-        nextItems,
-      );
+    const uid =
+      user.uid;
 
 
     const cartRef =
@@ -1005,130 +705,136 @@ export function CartProvider({
       );
 
 
-    console.log(
-      "[CART SAVE]",
-      {
-        uid,
-        path:
-          cartRef.path,
-
-        itemCount:
-          safeItems.length,
-
-        items:
-          safeItems,
-      },
-    );
+    let cancelled =
+      false;
 
 
-    await setDoc(
-      cartRef,
+    async function persistCustomerCart() {
+      try {
+        await setDoc(
+          cartRef,
+          {
+            userId:
+              uid,
 
-      {
-        userId:
-          uid,
+            items:
+              safeItems,
 
-        items:
-          safeItems,
-
-        updatedAt:
-          serverTimestamp(),
-      },
-
-      {
-        merge:
-          true,
-      },
-    );
+            updatedAt:
+              serverTimestamp(),
+          },
+          {
+            merge:
+              true,
+          },
+        );
 
 
-    console.log(
-      "[CART SAVE SUCCESS]",
-      {
-        uid,
-        path:
-          cartRef.path,
-      },
-    );
+        if (
+          cancelled
+        ) {
+          return;
+        }
 
-  }
+
+        /*
+         * Mark the contents as persisted only after Firestore
+         * accepts the write.
+         */
+
+        lastPersistedJsonRef.current =
+          serialized;
+
+
+        console.log(
+          "[CART SAVE]",
+          {
+            uid,
+            path:
+              cartRef.path,
+
+            itemCount:
+              safeItems.length,
+
+            items:
+              safeItems,
+          },
+        );
+
+      } catch (
+        error
+      ) {
+        console.error(
+          "[CART SAVE FAILED]",
+          {
+            uid,
+            path:
+              cartRef.path,
+            error,
+          },
+        );
+      }
+    }
+
+
+    void persistCustomerCart();
+
+
+    return () => {
+      cancelled =
+        true;
+    };
+  }, [
+    authLoading,
+    initialized,
+    items,
+    user?.uid,
+  ]);
 
 
   /*
-   * ========================================================
-   * ADD
-   * ========================================================
+   * ==========================================================
+   * ADD TO CART
+   * ==========================================================
    */
 
   function addToCart(
     product: Product,
     quantity = 1,
   ) {
-
     if (
       !isValidProduct(
         product,
       )
     ) {
-
-      console.warn(
-        "[CART] Invalid product",
-        product,
-      );
-
-
       return;
     }
 
 
     if (
       !product.available ||
-      product.stock <=
-        0
+      product.stock <= 0
     ) {
-
       return;
     }
 
 
-    const numericQuantity =
-      Math.floor(
-        Number(
-          quantity,
+    const safeQuantity =
+      Math.max(
+        1,
+        Math.floor(
+          Number(
+            quantity,
+          ),
         ),
       );
 
 
     if (
       !Number.isFinite(
-        numericQuantity,
-      ) ||
-      numericQuantity <=
-        0
+        safeQuantity,
+      )
     ) {
-
-      return;
-    }
-
-
-    /*
-     * Customer cart must have finished loading.
-     */
-
-    if (
-      user &&
-      !ready
-    ) {
-
-      console.warn(
-        "[CART] Customer cart is still loading",
-        {
-          uid:
-            user.uid,
-        },
-      );
-
-
       return;
     }
 
@@ -1137,7 +843,6 @@ export function CartProvider({
       (
         current,
       ) => {
-
         const existing =
           current.find(
             (
@@ -1148,212 +853,91 @@ export function CartProvider({
           );
 
 
-        let next:
-          CartItem[];
-
-
-        const cleanedProduct =
-          removeUndefined(
-            product,
-          ) as Product;
-
-
-        if (
-          !existing
-        ) {
-
-          next = [
+        if (!existing) {
+          return [
             ...current,
 
             {
-              product:
-                cleanedProduct,
+              product,
 
               quantity:
                 Math.min(
-                  numericQuantity,
-                  Math.max(
-                    1,
-                    product.stock,
-                  ),
+                  safeQuantity,
+                  product.stock,
                 ),
             },
           ];
-
-        } else {
-
-          next =
-            current.map(
-              (
-                item,
-              ) => {
-
-                if (
-                  item.product.id !==
-                  product.id
-                ) {
-
-                  return item;
-                }
-
-
-                return {
-
-                  product:
-                    cleanedProduct,
-
-                  quantity:
-                    Math.min(
-                      existing.quantity +
-                        numericQuantity,
-
-                      Math.max(
-                        1,
-                        product.stock,
-                      ),
-                    ),
-
-                };
-
-              },
-            );
-
         }
 
 
-        /*
-         * Save authenticated cart.
-         */
-
-        if (
-          user
-        ) {
-
-          void saveCustomerCart(
-            user.uid,
-            next,
-          ).catch(
-            (
-              error,
-            ) => {
-
-              console.error(
-                "[CART] Add sync failed:",
-                error,
-              );
-
-            },
-          );
-
-        } else {
-
-          /*
-           * Guest cart.
-           */
-
-          saveGuestCart(
-            next,
-          );
-
-        }
+        return current.map(
+          (
+            item,
+          ) => {
+            if (
+              item.product.id !==
+              product.id
+            ) {
+              return item;
+            }
 
 
-        return next;
+            return {
+              product,
+
+              quantity:
+                Math.min(
+                  existing.quantity +
+                    safeQuantity,
+
+                  Math.max(
+                    product.stock,
+                    1,
+                  ),
+                ),
+            };
+          },
+        );
       },
     );
   }
 
 
   /*
-   * ========================================================
-   * REMOVE
-   * ========================================================
+   * ==========================================================
+   * REMOVE FROM CART
+   * ==========================================================
    */
 
   function removeFromCart(
     productId: string,
   ) {
-
-    if (
-      user &&
-      !ready
-    ) {
-
-      return;
-    }
-
-
     setItems(
       (
         current,
-      ) => {
-
-        const next =
-          current.filter(
-            (
-              item,
-            ) =>
-              item.product.id !==
-              productId,
-          );
-
-
-        if (
-          user
-        ) {
-
-          void saveCustomerCart(
-            user.uid,
-            next,
-          ).catch(
-            (
-              error,
-            ) => {
-
-              console.error(
-                "[CART] Remove sync failed:",
-                error,
-              );
-
-            },
-          );
-
-        } else {
-
-          saveGuestCart(
-            next,
-          );
-
-        }
-
-
-        return next;
-      },
+      ) =>
+        current.filter(
+          (
+            item,
+          ) =>
+            item.product.id !==
+            productId,
+        ),
     );
   }
 
 
   /*
-   * ========================================================
+   * ==========================================================
    * UPDATE QUANTITY
-   * ========================================================
+   * ==========================================================
    */
 
   function updateQuantity(
     productId: string,
     quantity: number,
   ) {
-
-    if (
-      user &&
-      !ready
-    ) {
-
-      return;
-    }
-
-
-    const numericQuantity =
+    const safeQuantity =
       Math.floor(
         Number(
           quantity,
@@ -1363,16 +947,13 @@ export function CartProvider({
 
     if (
       !Number.isFinite(
-        numericQuantity,
+        safeQuantity,
       ) ||
-      numericQuantity <=
-        0
+      safeQuantity <= 0
     ) {
-
       removeFromCart(
         productId,
       );
-
 
       return;
     }
@@ -1381,88 +962,47 @@ export function CartProvider({
     setItems(
       (
         current,
-      ) => {
-
-        const next =
-          current.map(
-            (
-              item,
-            ) => {
-
-              if (
-                item.product.id !==
-                productId
-              ) {
-
-                return item;
-              }
+      ) =>
+        current.map(
+          (
+            item,
+          ) => {
+            if (
+              item.product.id !==
+              productId
+            ) {
+              return item;
+            }
 
 
-              return {
+            return {
+              ...item,
 
-                ...item,
+              quantity:
+                Math.min(
+                  safeQuantity,
 
-                quantity:
-                  Math.min(
-                    numericQuantity,
-
-                    Math.max(
-                      1,
-                      item.product.stock,
-                    ),
+                  Math.max(
+                    item.product.stock,
+                    1,
                   ),
-
-              };
-
-            },
-          );
-
-
-        if (
-          user
-        ) {
-
-          void saveCustomerCart(
-            user.uid,
-            next,
-          ).catch(
-            (
-              error,
-            ) => {
-
-              console.error(
-                "[CART] Update sync failed:",
-                error,
-              );
-
-            },
-          );
-
-        } else {
-
-          saveGuestCart(
-            next,
-          );
-
-        }
-
-
-        return next;
-      },
+                ),
+            };
+          },
+        ),
     );
   }
 
 
   /*
-   * ========================================================
-   * INCREASE
-   * ========================================================
+   * ==========================================================
+   * INCREASE QUANTITY
+   * ==========================================================
    */
 
   function increaseQuantity(
     productId: string,
   ) {
-
     const item =
       items.find(
         (
@@ -1473,16 +1013,14 @@ export function CartProvider({
       );
 
 
-    if (
-      !item
-    ) {
-
+    if (!item) {
       return;
     }
 
 
     updateQuantity(
       productId,
+
       item.quantity +
         1,
     );
@@ -1490,15 +1028,14 @@ export function CartProvider({
 
 
   /*
-   * ========================================================
-   * DECREASE
-   * ========================================================
+   * ==========================================================
+   * DECREASE QUANTITY
+   * ==========================================================
    */
 
   function decreaseQuantity(
     productId: string,
   ) {
-
     const item =
       items.find(
         (
@@ -1509,16 +1046,14 @@ export function CartProvider({
       );
 
 
-    if (
-      !item
-    ) {
-
+    if (!item) {
       return;
     }
 
 
     updateQuantity(
       productId,
+
       item.quantity -
         1,
     );
@@ -1526,58 +1061,27 @@ export function CartProvider({
 
 
   /*
-   * ========================================================
+   * ==========================================================
    * CLEAR CART
-   * ========================================================
+   * ==========================================================
    */
 
   function clearCart() {
-
     setItems(
       [],
     );
-
-
-    if (
-      user
-    ) {
-
-      void saveCustomerCart(
-        user.uid,
-        [],
-      ).catch(
-        (
-          error,
-        ) => {
-
-          console.error(
-            "[CART] Clear sync failed:",
-            error,
-          );
-
-        },
-      );
-
-    } else {
-
-      saveGuestCart(
-        [],
-      );
-
-    }
   }
 
 
   /*
-   * ========================================================
+   * ==========================================================
    * GET ITEM QUANTITY
-   * ========================================================
+   * ==========================================================
    */
 
   function getItemQuantity(
     productId: string,
   ): number {
-
     return (
       items.find(
         (
@@ -1592,9 +1096,9 @@ export function CartProvider({
 
 
   /*
-   * ========================================================
+   * ==========================================================
    * SUBTOTAL
-   * ========================================================
+   * ==========================================================
    */
 
   const subtotal =
@@ -1605,7 +1109,6 @@ export function CartProvider({
             sum,
             item,
           ) => {
-
             const price =
               Number(
                 item.product.price,
@@ -1626,7 +1129,6 @@ export function CartProvider({
                 quantity,
               )
             ) {
-
               return sum;
             }
 
@@ -1636,7 +1138,6 @@ export function CartProvider({
               price *
                 quantity
             );
-
           },
 
           0,
@@ -1649,9 +1150,9 @@ export function CartProvider({
 
 
   /*
-   * ========================================================
+   * ==========================================================
    * ITEM COUNT
-   * ========================================================
+   * ==========================================================
    */
 
   const itemCount =
@@ -1675,14 +1176,13 @@ export function CartProvider({
 
 
   /*
-   * ========================================================
-   * VALUE
-   * ========================================================
+   * ==========================================================
+   * CONTEXT VALUE
+   * ==========================================================
    */
 
   const value:
     CartContextValue = {
-
     items,
 
     cartItems:
@@ -1742,7 +1242,6 @@ export function CartProvider({
  */
 
 export function useCart() {
-
   const context =
     useContext(
       CartContext,
@@ -1752,7 +1251,6 @@ export function useCart() {
   if (
     !context
   ) {
-
     throw new Error(
       "useCart must be used inside CartProvider",
     );
@@ -1761,3 +1259,6 @@ export function useCart() {
 
   return context;
 }
+
+
+export default CartContext;
