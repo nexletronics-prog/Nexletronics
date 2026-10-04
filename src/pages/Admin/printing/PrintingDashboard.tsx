@@ -27,7 +27,7 @@ import {
 } from "../../../services/printing.service";
 
 import {
-  openPrintingStlFile,
+  downloadPrintingStlFile,
 } from "../../../services/printingDownload.service";
 
 import type {
@@ -978,51 +978,10 @@ export default function PrintingDashboard() {
       PrintingOrder,
   ) {
 
-    /*
-     * The printing flow stores the secure STL path in
-     * `storagePath`.
-     *
-     * Some older documents may also contain a direct URL.
-     */
-
-    const directUrl =
-      stringValue(
-        (
-          order as
-            PrintingOrder & {
-              downloadUrl?:
-                string;
-            }
-        ).downloadUrl,
-      );
-
-
-    if (
-      directUrl
-    ) {
-
-      const popup =
-        window.open(
-          directUrl,
-          "_blank",
-          "noopener,noreferrer",
-        );
-
-      if (!popup) {
-        setError(
-          "Your browser blocked the STL window. Allow pop-ups for this site and try again.",
-        );
-      }
-
-      return;
-    }
-
-
     const storagePath =
       stringValue(
         order.storagePath,
       );
-
 
     if (!storagePath) {
       setError(
@@ -1031,29 +990,21 @@ export default function PrintingDashboard() {
       return;
     }
 
-
     try {
-      setError(
-        "",
-      );
-
-      await openPrintingStlFile(
+      await downloadPrintingStlFile(
         storagePath,
+        stringValue(order.originalFileName) || "model.stl",
       );
-
-    } catch (
-      downloadError
-    ) {
-
+    } catch (error) {
       console.error(
-        "Failed to open printing STL file:",
-        downloadError,
+        "Failed to download printing STL file:",
+        error,
       );
 
       setError(
-        downloadError instanceof Error
-          ? downloadError.message
-          : "Unable to open or download the STL file.",
+        error instanceof Error
+          ? error.message
+          : "Unable to download the STL file.",
       );
     }
   }
@@ -2222,7 +2173,7 @@ function PrintingOrderModal({
                   size={15}
                 />
 
-                Open / Download File
+                Download STL File
 
               </button>
 
