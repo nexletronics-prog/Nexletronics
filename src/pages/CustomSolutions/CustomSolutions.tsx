@@ -21,156 +21,24 @@ import {
   Link,
 } from "react-router-dom";
 
-import {
-  collection,
-  onSnapshot,
-  query,
-  where,
-} from "firebase/firestore";
-
-import {
-  db,
-} from "../../firebase/config";
 
 import {
   useAuth,
 } from "../../hooks/useAuth";
+
+import {
+  subscribeCustomPortfolio,
+} from "../../services/customShowcase.service";
+
+import {
+  subscribeCustomerCustomProjects,
+} from "../../services/customProject.service";
 
 import type {
   CustomPortfolioCategory,
   CustomPortfolioItem,
   CustomProject,
 } from "../../types/customProject";
-
-
-/*
- * ==========================================================
- * PORTFOLIO NORMALIZER
- * ==========================================================
- */
-
-function normalizePortfolio(
-  id:
-    string,
-
-  data:
-    Record<
-      string,
-      unknown
-    >,
-): CustomPortfolioItem {
-
-  const category:
-    CustomPortfolioCategory =
-    data.category ===
-      "devices"
-      ? "devices"
-      : "website";
-
-
-  return {
-
-    id,
-
-    title:
-      typeof data.title ===
-      "string"
-        ? data.title
-        : "Untitled project",
-
-    slug:
-      typeof data.slug ===
-      "string"
-        ? data.slug
-        : id,
-
-    category,
-
-    shortDescription:
-      typeof data.shortDescription ===
-      "string"
-        ? data.shortDescription
-        : "",
-
-    description:
-      typeof data.description ===
-      "string"
-        ? data.description
-        : "",
-
-    coverImage:
-      typeof data.coverImage ===
-      "string"
-        ? data.coverImage
-        : "",
-
-    gallery:
-      Array.isArray(
-        data.gallery,
-      )
-        ? data.gallery.filter(
-            (
-              image,
-            ): image is string =>
-              typeof image ===
-              "string" &&
-              image.trim().length >
-              0,
-          )
-        : [],
-
-    technologies:
-      Array.isArray(
-        data.technologies,
-      )
-        ? data.technologies.filter(
-            (
-              technology,
-            ): technology is string =>
-              typeof technology ===
-              "string" &&
-              technology.trim().length >
-              0,
-          )
-        : [],
-
-    clientIndustry:
-      typeof data.clientIndustry ===
-      "string"
-        ? data.clientIndustry
-        : undefined,
-
-    liveUrl:
-      typeof data.liveUrl ===
-      "string"
-        ? data.liveUrl
-        : undefined,
-
-    featured:
-      data.featured ===
-      true,
-
-    published:
-      data.published !==
-      false,
-
-    sortOrder:
-      typeof data.sortOrder ===
-      "number" &&
-      Number.isFinite(
-        data.sortOrder,
-      )
-        ? data.sortOrder
-        : 0,
-
-    createdAt:
-      data.createdAt,
-
-    updatedAt:
-      data.updatedAt,
-
-  };
-}
 
 
 /*
@@ -651,79 +519,28 @@ export default function CustomSolutions() {
    * ========================================================
    * REALTIME PORTFOLIO
    * ========================================================
+   *
+   * Portfolio data is now served from Supabase. The service
+   * handles the initial load plus realtime updates while RLS
+   * keeps unpublished rows hidden from public users.
+   * ========================================================
    */
 
   useEffect(
     () => {
 
-      const portfolioRef =
-        collection(
-          db,
-          "customPortfolio",
-        );
-
-
       const unsubscribe =
-        onSnapshot(
+        subscribeCustomPortfolio(
 
-          portfolioRef,
-
-          (
-            snapshot,
-          ) => {
-
-            const items =
-              snapshot.docs
-                .map(
-                  (
-                    document,
-                  ) =>
-                    normalizePortfolio(
-                      document.id,
-                      document.data(),
-                    ),
-                )
-                .filter(
-                  (
-                    item,
-                  ) =>
-                    item.published,
-                )
-                .sort(
-                  (
-                    first,
-                    second,
-                  ) => {
-
-                    if (
-                      first.featured !==
-                      second.featured
-                    ) {
-
-                      return first.featured
-                        ? -1
-                        : 1;
-                    }
-
-
-                    return (
-                      first.sortOrder -
-                      second.sortOrder
-                    );
-
-                  },
-                );
-
+          (items) => {
 
             setPortfolio(
               items,
             );
 
-
             setLoading(
               false,
             );
-
 
             setError(
               "",
@@ -731,22 +548,18 @@ export default function CustomSolutions() {
 
           },
 
-          (
-            listenerError,
-          ) => {
+          (listenerError) => {
 
             console.error(
               "Custom portfolio listener failed:",
               listenerError,
             );
 
-
             setError(
               listenerError instanceof Error
                 ? listenerError.message
                 : "Portfolio is temporarily unavailable.",
             );
-
 
             setLoading(
               false,
@@ -770,162 +583,50 @@ export default function CustomSolutions() {
    * REALTIME CUSTOMER PROJECTS
    * ========================================================
    *
-   * IMPORTANT:
-   *
-   * We query by userId only and sort in JavaScript.
-   * This avoids requiring an additional composite Firestore
-   * index for userId + createdAt.
+   * Customer projects are read from Supabase. The service
+   * applies the authenticated Firebase UID as the database
+   * filter and subscribes to Supabase Realtime updates.
    * ========================================================
    */
 
   useEffect(
     () => {
-
-      if (
-        !user
-      ) {
-
-        setProjects(
-          [],
-        );
-
-        setProjectsLoading(
-          false,
-        );
-
-        setProjectsError(
-          "",
-        );
-
+      if (!user) {
+        setProjects([]);
+        setProjectsLoading(false);
+        setProjectsError("");
         return;
       }
 
+      setProjectsLoading(true);
+      setProjectsError("");
 
-      setProjectsLoading(
-        true,
-      );
-
-
-      setProjectsError(
-        "",
-      );
-
-
-      const projectsRef =
-        collection(
-          db,
-          "customProjects",
-        );
-
-
-      const projectsQuery =
-        query(
-          projectsRef,
-          where(
-            "userId",
-            "==",
-            user.uid,
-          ),
-        );
-
-
-      const unsubscribe =
-        onSnapshot(
-
-          projectsQuery,
-
-          (
-            snapshot,
-          ) => {
-
-            const customerProjects =
-              snapshot.docs.map(
-                (
-                  document,
-                ) => ({
-                  id:
-                    document.id,
-
-                  ...(
-                    document.data() as
-                      Omit<
-                        CustomProject,
-                        "id"
-                      >
-                  ),
-
-                }),
-              );
-
-
-            customerProjects.sort(
-              (
-                first,
-                second,
-              ) =>
-                timestampValue(
-                  second.createdAt,
-                ) -
-                timestampValue(
-                  first.createdAt,
-                ),
-            );
-
-
-            setProjects(
-              customerProjects,
-            );
-
-
-            setProjectsLoading(
-              false,
-            );
-
-
-            setProjectsError(
-              "",
-            );
-
-          },
-
-          (
+      const unsubscribe = subscribeCustomerCustomProjects(
+        user.uid,
+        (customerProjects) => {
+          setProjects(customerProjects);
+          setProjectsLoading(false);
+          setProjectsError("");
+        },
+        (listenerError) => {
+          console.error(
+            "Customer custom projects listener failed:",
             listenerError,
-          ) => {
+          );
 
-            console.error(
-              "Customer custom projects listener failed:",
-              listenerError,
-            );
+          setProjects([]);
+          setProjectsLoading(false);
+          setProjectsError(
+            listenerError instanceof Error
+              ? listenerError.message
+              : "Unable to load your previous projects.",
+          );
+        },
+      );
 
-
-            setProjects(
-              [],
-            );
-
-
-            setProjectsLoading(
-              false,
-            );
-
-
-            setProjectsError(
-              listenerError instanceof Error
-                ? listenerError.message
-                : "Unable to load your previous projects.",
-            );
-
-          },
-
-        );
-
-
-      return () =>
-        unsubscribe();
-
+      return () => unsubscribe();
     },
-    [
-      user,
-    ],
+    [user?.uid],
   );
 
 

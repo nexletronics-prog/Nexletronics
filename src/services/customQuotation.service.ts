@@ -1,18 +1,9 @@
 import {
-  addDoc,
-  collection,
-  doc,
-  getDocs,
-  onSnapshot,
-  orderBy,
-  query,
-  serverTimestamp,
-  updateDoc,
-  where,
-} from "firebase/firestore";
+  supabase,
+} from "../lib/supabase";
 
 import {
-  db,
+  auth,
 } from "../firebase/config";
 
 import type {
@@ -24,25 +15,27 @@ import type {
 
 /*
  * ==========================================================
- * FIRESTORE COLLECTIONS
+ * TABLES
  * ==========================================================
  */
 
-const PROJECTS_COLLECTION =
-  "customProjects";
+const QUOTATIONS_TABLE =
+  "custom_quotations";
 
-const QUOTATIONS_SUBCOLLECTION =
-  "quotations";
+const ITEMS_TABLE =
+  "custom_quotation_items";
+
+const PROJECTS_TABLE =
+  "custom_projects";
 
 
 /*
  * ==========================================================
- * CREATE QUOTATION INPUT
+ * INPUT
  * ==========================================================
  */
 
 export interface CreateCustomQuotationInput {
-
   project:
     CustomProject;
 
@@ -77,34 +70,158 @@ export interface CreateCustomQuotationInput {
 
 /*
  * ==========================================================
+ * DATABASE ROW
+ * ==========================================================
+ */
+
+interface QuotationRow {
+  id: string;
+
+  quotation_number: string;
+
+  project_id: string;
+
+  customer_name: string;
+
+  customer_email: string;
+
+  project_title: string;
+
+  subtotal: number | string;
+
+  discount: number | string;
+
+  tax_rate: number | string;
+
+  tax_amount: number | string;
+
+  total: number | string;
+
+  currency: string;
+
+  validity_days: number;
+
+  valid_until: string | null;
+
+  estimated_delivery: string;
+
+  payment_terms: string;
+
+  notes: string;
+
+  status: string;
+
+  accepted_at: string | null;
+
+  accepted_by: string | null;
+
+  rejection_reason: string | null;
+
+  payment_required: boolean;
+
+  payment_status: string;
+
+  paid_at: string | null;
+
+  payment_id: string | null;
+
+  razorpay_order_id: string | null;
+
+  created_by: string;
+
+  created_at: string;
+
+  updated_at: string;
+}
+
+
+interface QuotationItemRow {
+  id: string;
+
+  quotation_id: string;
+
+  description: string;
+
+  quantity: number | string;
+
+  unit_price: number | string;
+
+  total: number | string;
+
+  created_at: string;
+}
+
+
+/*
+ * ==========================================================
+ * COLUMNS
+ * ==========================================================
+ */
+
+const QUOTATION_COLUMNS = `
+  id,
+  quotation_number,
+  project_id,
+  customer_name,
+  customer_email,
+  project_title,
+  subtotal,
+  discount,
+  tax_rate,
+  tax_amount,
+  total,
+  currency,
+  validity_days,
+  valid_until,
+  estimated_delivery,
+  payment_terms,
+  notes,
+  status,
+  accepted_at,
+  accepted_by,
+  rejection_reason,
+  payment_required,
+  payment_status,
+  paid_at,
+  payment_id,
+  razorpay_order_id,
+  created_by,
+  created_at,
+  updated_at
+`;
+
+
+const ITEM_COLUMNS = `
+  id,
+  quotation_id,
+  description,
+  quantity,
+  unit_price,
+  total,
+  created_at
+`;
+
+
+/*
+ * ==========================================================
  * SAFE NUMBER
  * ==========================================================
  */
 
 function safeNumber(
-  value:
-    unknown,
-
-  fallback:
-    number = 0,
+  value: unknown,
+  fallback = 0,
 ): number {
-
   if (
-    typeof value ===
-      "number" &&
-    Number.isFinite(
-      value,
-    )
+    typeof value === "number" &&
+    Number.isFinite(value)
   ) {
-
     return value;
   }
 
 
   const parsed =
-    Number(
-      value,
-    );
+    Number(value);
 
 
   return Number.isFinite(
@@ -117,7 +234,125 @@ function safeNumber(
 
 /*
  * ==========================================================
- * CALCULATE QUOTATION TOTALS
+ * STRING
+ * ==========================================================
+ */
+
+function cleanString(
+  value: unknown,
+): string {
+  return typeof value ===
+    "string"
+    ? value.trim()
+    : "";
+}
+
+
+/*
+ * ==========================================================
+ * STATUS NORMALIZERS
+ * ==========================================================
+ */
+
+function normalizeQuotationStatus(
+  value: unknown,
+): CustomQuotation["status"] {
+  switch (value) {
+    case "draft":
+    case "sent":
+    case "accepted":
+    case "rejected":
+    case "expired":
+    case "cancelled":
+      return value;
+
+    default:
+      return "draft";
+  }
+}
+
+
+function normalizePaymentStatus(
+  value: unknown,
+): CustomQuotation["paymentStatus"] {
+  switch (value) {
+    case "not_required":
+    case "pending":
+    case "processing":
+    case "paid":
+    case "failed":
+    case "refunded":
+      return value;
+
+    default:
+      return "not_required";
+  }
+}
+
+
+/*
+ * ==========================================================
+ * TIME
+ * ==========================================================
+ */
+
+function toIsoDate(
+  value: unknown,
+): string | null {
+  if (
+    value instanceof Date
+  ) {
+    return value.toISOString();
+  }
+
+
+  if (
+    typeof value ===
+    "string"
+  ) {
+    const parsed =
+      new Date(
+        value,
+      );
+
+
+    if (
+      !Number.isNaN(
+        parsed.getTime(),
+      )
+    ) {
+      return parsed.toISOString();
+    }
+  }
+
+
+  return null;
+}
+
+
+/*
+ * ==========================================================
+ * QUOTATION NUMBER
+ * ==========================================================
+ */
+
+function createQuotationNumber():
+  string {
+  const timestamp =
+    Date.now()
+      .toString()
+      .slice(
+        -8,
+      );
+
+
+  return `QT-${timestamp}`;
+}
+
+
+/*
+ * ==========================================================
+ * CALCULATE TOTALS
  * ==========================================================
  */
 
@@ -131,7 +366,6 @@ export function calculateQuotationTotals(
   taxRate:
     number,
 ) {
-
   const subtotal =
     items.reduce(
       (
@@ -189,7 +423,6 @@ export function calculateQuotationTotals(
 
 
   return {
-
     subtotal:
       Number(
         subtotal.toFixed(
@@ -224,28 +457,245 @@ export function calculateQuotationTotals(
           2,
         ),
       ),
-
   };
 }
 
 
 /*
  * ==========================================================
- * CREATE QUOTATION NUMBER
+ * MAP ITEMS
  * ==========================================================
  */
 
-function createQuotationNumber(): string {
+function mapQuotationItems(
+  rows:
+    QuotationItemRow[],
+): CustomQuotationItem[] {
+  return rows.map(
+    (
+      row,
+    ) => ({
+      id:
+        row.id,
 
-  const timestamp =
-    Date.now()
-      .toString()
-      .slice(
-        -8,
+      description:
+        row.description,
+
+      quantity:
+        safeNumber(
+          row.quantity,
+        ),
+
+      unitPrice:
+        safeNumber(
+          row.unit_price,
+        ),
+
+      total:
+        safeNumber(
+          row.total,
+        ),
+    }),
+  );
+}
+
+
+/*
+ * ==========================================================
+ * MAP QUOTATION
+ * ==========================================================
+ */
+
+function mapQuotation(
+  row:
+    QuotationRow,
+
+  items:
+    QuotationItemRow[],
+): CustomQuotation {
+  return {
+    id:
+      row.id,
+
+    quotationNumber:
+      row.quotation_number,
+
+    projectId:
+      row.project_id,
+
+    customerName:
+      row.customer_name,
+
+    customerEmail:
+      row.customer_email,
+
+    projectTitle:
+      row.project_title,
+
+    items:
+      mapQuotationItems(
+        items,
+      ),
+
+    subtotal:
+      safeNumber(
+        row.subtotal,
+      ),
+
+    discount:
+      safeNumber(
+        row.discount,
+      ),
+
+    taxRate:
+      safeNumber(
+        row.tax_rate,
+      ),
+
+    taxAmount:
+      safeNumber(
+        row.tax_amount,
+      ),
+
+    total:
+      safeNumber(
+        row.total,
+      ),
+
+    currency:
+      row.currency ||
+      "INR",
+
+    validityDays:
+      Math.max(
+        1,
+        Math.floor(
+          safeNumber(
+            row.validity_days,
+            7,
+          ),
+        ),
+      ),
+
+    validUntil:
+      toIsoDate(
+        row.valid_until,
+      ) ??
+      undefined,
+
+    estimatedDelivery:
+      row.estimated_delivery,
+
+    paymentTerms:
+      row.payment_terms ||
+      undefined,
+
+    notes:
+      row.notes ||
+      undefined,
+
+    status:
+      normalizeQuotationStatus(
+        row.status,
+      ),
+
+    acceptedAt:
+      toIsoDate(
+        row.accepted_at,
+      ) ??
+      undefined,
+
+    acceptedBy:
+      row.accepted_by ||
+      undefined,
+
+    rejectionReason:
+      row.rejection_reason ||
+      undefined,
+
+    paymentRequired:
+      Boolean(
+        row.payment_required,
+      ),
+
+    paymentStatus:
+      normalizePaymentStatus(
+        row.payment_status,
+      ),
+
+    paidAt:
+      toIsoDate(
+        row.paid_at,
+      ) ??
+      undefined,
+
+    paymentId:
+      row.payment_id ||
+      undefined,
+
+    razorpayOrderId:
+      row.razorpay_order_id ||
+      undefined,
+
+    createdBy:
+      row.created_by,
+
+    createdAt:
+      row.created_at,
+
+    updatedAt:
+      row.updated_at,
+  };
+}
+
+
+/*
+ * ==========================================================
+ * GET ITEMS
+ * ==========================================================
+ */
+
+async function getQuotationItems(
+  quotationId:
+    string,
+): Promise<
+  QuotationItemRow[]
+> {
+  const {
+    data,
+    error,
+  } =
+    await supabase
+      .from(
+        ITEMS_TABLE,
+      )
+      .select(
+        ITEM_COLUMNS,
+      )
+      .eq(
+        "quotation_id",
+        quotationId,
+      )
+      .order(
+        "created_at",
+        {
+          ascending:
+            true,
+        },
       );
 
 
-  return `QT-${timestamp}`;
+  if (
+    error
+  ) {
+    throw error;
+  }
+
+
+  return (
+    data ??
+    []
+  ) as QuotationItemRow[];
 }
 
 
@@ -259,11 +709,22 @@ export async function createCustomQuotation(
   input:
     CreateCustomQuotationInput,
 ): Promise<string> {
+  const user =
+    auth.currentUser;
+
+
+  if (
+    !user
+  ) {
+    throw new Error(
+      "Admin authentication is required.",
+    );
+  }
+
 
   if (
     !input.project.id
   ) {
-
     throw new Error(
       "Project ID is required.",
     );
@@ -273,9 +734,18 @@ export async function createCustomQuotation(
   if (
     !input.createdBy
   ) {
-
     throw new Error(
       "Admin authentication is required.",
+    );
+  }
+
+
+  if (
+    input.createdBy !==
+    user.uid
+  ) {
+    throw new Error(
+      "Quotation creator does not match the signed-in account.",
     );
   }
 
@@ -287,21 +757,18 @@ export async function createCustomQuotation(
     input.items.length ===
       0
   ) {
-
     throw new Error(
       "Add at least one quotation item.",
     );
   }
 
 
-  const cleanedItems:
-    CustomQuotationItem[] =
+  const cleanedItems =
     input.items.map(
       (
         item,
         index,
       ) => {
-
         const quantity =
           Math.max(
             0,
@@ -321,16 +788,16 @@ export async function createCustomQuotation(
 
 
         return {
-
           id:
-            item.id ||
+            cleanString(
+              item.id,
+            ) ||
             `item-${index + 1}`,
 
           description:
-            typeof item.description ===
-            "string"
-              ? item.description.trim()
-              : "",
+            cleanString(
+              item.description,
+            ),
 
           quantity,
 
@@ -345,21 +812,18 @@ export async function createCustomQuotation(
                 2,
               ),
             ),
-
         };
       },
     );
 
 
   for (
-    const item
-    of cleanedItems
+    const item of
+      cleanedItems
   ) {
-
     if (
       !item.description
     ) {
-
       throw new Error(
         "Every quotation item needs a description.",
       );
@@ -370,7 +834,6 @@ export async function createCustomQuotation(
       item.quantity <=
       0
     ) {
-
       throw new Error(
         "Quotation quantity must be greater than zero.",
       );
@@ -381,12 +844,10 @@ export async function createCustomQuotation(
       item.unitPrice <
       0
     ) {
-
       throw new Error(
         "Quotation unit price cannot be negative.",
       );
     }
-
   }
 
 
@@ -402,7 +863,6 @@ export async function createCustomQuotation(
     totals.total <=
     0
   ) {
-
     throw new Error(
       "Quotation total must be greater than zero.",
     );
@@ -422,105 +882,192 @@ export async function createCustomQuotation(
 
 
   const currency =
-    typeof input.project.currency ===
-      "string" &&
-    input.project.currency.trim()
-      ? input.project.currency.trim()
-      : "INR";
+    cleanString(
+      input.project.currency,
+    ) ||
+    "INR";
 
 
-  const quotationData:
-    Omit<
-      CustomQuotation,
-      "id"
-    > = {
-
-    quotationNumber:
-      createQuotationNumber(),
-
-    projectId:
-      input.project.id,
-
-    customerName:
-      input.project.customerName,
-
-    customerEmail:
-      input.project.customerEmail,
-
-    projectTitle:
-      input.project.title,
-
-    items:
-      cleanedItems,
-
-    subtotal:
-      totals.subtotal,
-
-    discount:
-      totals.discount,
-
-    taxRate:
-      totals.taxRate,
-
-    taxAmount:
-      totals.taxAmount,
-
-    total:
-      totals.total,
-
-    currency,
-
-    validityDays,
-
-    estimatedDelivery:
-      input.estimatedDelivery.trim(),
-
-    paymentTerms:
-      input.paymentTerms.trim(),
-
-    notes:
-      input.notes.trim(),
-
-    status:
-      "draft",
-
-    paymentRequired:
-      Boolean(
-        input.paymentRequired,
-      ),
-
-    paymentStatus:
-      "not_required",
-
-    createdBy:
-      input.createdBy,
-
-    createdAt:
-      serverTimestamp(),
-
-    updatedAt:
-      serverTimestamp(),
-
-  };
+  const quotationId =
+    crypto.randomUUID();
 
 
-  const quotationsRef =
-    collection(
-      db,
-      PROJECTS_COLLECTION,
-      input.project.id,
-      QUOTATIONS_SUBCOLLECTION,
+  const quotationNumber =
+    createQuotationNumber();
+
+
+  const validUntil =
+    new Date();
+
+
+  validUntil.setDate(
+    validUntil.getDate() +
+      validityDays,
+  );
+
+
+  const {
+    error:
+      quotationError,
+  } =
+    await supabase
+      .from(
+        QUOTATIONS_TABLE,
+      )
+      .insert({
+        id:
+          quotationId,
+
+        quotation_number:
+          quotationNumber,
+
+        project_id:
+          input.project.id,
+
+        customer_name:
+          input.project.customerName,
+
+        customer_email:
+          input.project.customerEmail,
+
+        project_title:
+          input.project.title,
+
+        subtotal:
+          totals.subtotal,
+
+        discount:
+          totals.discount,
+
+        tax_rate:
+          totals.taxRate,
+
+        tax_amount:
+          totals.taxAmount,
+
+        total:
+          totals.total,
+
+        currency,
+
+        validity_days:
+          validityDays,
+
+        valid_until:
+          validUntil.toISOString(),
+
+        estimated_delivery:
+          cleanString(
+            input.estimatedDelivery,
+          ),
+
+        payment_terms:
+          cleanString(
+            input.paymentTerms,
+          ),
+
+        notes:
+          cleanString(
+            input.notes,
+          ),
+
+        status:
+          "draft",
+
+        payment_required:
+          Boolean(
+            input.paymentRequired,
+          ),
+
+        payment_status:
+          input.paymentRequired
+            ? "pending"
+            : "not_required",
+
+        created_by:
+          input.createdBy,
+
+        created_at:
+          new Date().toISOString(),
+
+        updated_at:
+          new Date().toISOString(),
+      });
+
+
+  if (
+    quotationError
+  ) {
+    throw quotationError;
+  }
+
+
+  /*
+   * Insert quotation items.
+   */
+
+  const itemRows =
+    cleanedItems.map(
+      (
+        item,
+        index,
+      ) => ({
+        id:
+          `${quotationId}-${index + 1}`,
+
+        quotation_id:
+          quotationId,
+
+        description:
+          item.description,
+
+        quantity:
+          item.quantity,
+
+        unit_price:
+          item.unitPrice,
+
+        total:
+          item.total,
+
+        created_at:
+          new Date().toISOString(),
+      }),
     );
 
 
-  const quotation =
-    await addDoc(
-      quotationsRef,
-      quotationData,
-    );
+  const {
+    error:
+      itemsError,
+  } =
+    await supabase
+      .from(
+        ITEMS_TABLE,
+      )
+      .insert(
+        itemRows,
+      );
 
 
-  return quotation.id;
+  if (
+    itemsError
+  ) {
+    await supabase
+      .from(
+        QUOTATIONS_TABLE,
+      )
+      .delete()
+      .eq(
+        "id",
+        quotationId,
+      );
+
+
+    throw itemsError;
+  }
+
+
+  return quotationId;
 }
 
 
@@ -537,94 +1084,63 @@ export async function getCustomQuotation(
   quotationId:
     string,
 ): Promise<
-  CustomQuotation | null
+  CustomQuotation |
+  null
 > {
-
   if (
     !projectId ||
     !quotationId
   ) {
-
     return null;
   }
 
 
-  const quotationRef =
-    doc(
-      db,
-      PROJECTS_COLLECTION,
-      projectId,
-      QUOTATIONS_SUBCOLLECTION,
+  const {
+    data,
+    error,
+  } =
+    await supabase
+      .from(
+        QUOTATIONS_TABLE,
+      )
+      .select(
+        QUOTATION_COLUMNS,
+      )
+      .eq(
+        "id",
+        quotationId,
+      )
+      .eq(
+        "project_id",
+        projectId,
+      )
+      .maybeSingle();
+
+
+  if (
+    error
+  ) {
+    throw error;
+  }
+
+
+  if (
+    !data
+  ) {
+    return null;
+  }
+
+
+  const items =
+    await getQuotationItems(
       quotationId,
     );
 
 
-  /*
-   * We intentionally use a small one-document query here
-   * rather than reading the entire quotation collection.
-   */
-
-  const snapshot =
-    await getDocs(
-      query(
-        collection(
-          db,
-          PROJECTS_COLLECTION,
-          projectId,
-          QUOTATIONS_SUBCOLLECTION,
-        ),
-
-        where(
-          "__name__",
-          "==",
-          quotationId,
-        ),
-      ),
-    );
-
-
-  if (
-    snapshot.empty
-  ) {
-
-    return null;
-  }
-
-
-  const quotationDoc =
-    snapshot.docs[0];
-
-
-  if (
-    !quotationDoc
-  ) {
-
-    return null;
-  }
-
-
-  /*
-   * Keep quotationRef referenced so the document path remains
-   * explicit and easy to verify while debugging.
-   */
-
-  void quotationRef;
-
-
-  return {
-
-    id:
-      quotationDoc.id,
-
-    ...(
-      quotationDoc.data() as
-        Omit<
-          CustomQuotation,
-          "id"
-        >
-    ),
-
-  };
+  return mapQuotation(
+    data as QuotationRow,
+    items,
+  );
 }
 
 
@@ -632,11 +1148,6 @@ export async function getCustomQuotation(
  * ==========================================================
  * REALTIME SINGLE QUOTATION
  * ==========================================================
- *
- * Customer quotation page uses this listener.
- *
- * Any admin-side quotation update is immediately reflected
- * on the customer page without a browser refresh.
  */
 
 export function subscribeCustomQuotation(
@@ -659,99 +1170,149 @@ export function subscribeCustomQuotation(
         Error,
     ) => void,
 ): () => void {
-
   if (
     !projectId ||
     !quotationId
   ) {
-
     callback(
       null,
     );
 
 
-    return () => {};
+    return () => {
+      // No subscription.
+    };
   }
 
 
-  const quotationRef =
-    doc(
-      db,
-      PROJECTS_COLLECTION,
-      projectId,
-      QUOTATIONS_SUBCOLLECTION,
-      quotationId,
-    );
+  let stopped =
+    false;
 
 
-  return onSnapshot(
+  let channel:
+    ReturnType<
+      typeof supabase.channel
+    > | null =
+    null;
 
-    quotationRef,
 
-    (
-      snapshot,
-    ) => {
-
-      if (
-        !snapshot.exists()
-      ) {
-
-        callback(
-          null,
+  async function loadQuotation() {
+    try {
+      const quotation =
+        await getCustomQuotation(
+          projectId,
+          quotationId,
         );
 
-        return;
+
+      if (
+        !stopped
+      ) {
+        callback(
+          quotation,
+        );
       }
+    } catch (
+      error
+    ) {
+      if (
+        !stopped
+      ) {
+        const normalized =
+          error instanceof Error
+            ? error
+            : new Error(
+                "Unable to load quotation.",
+              );
 
 
-      const data =
-        snapshot.data();
+        onError?.(
+          normalized,
+        );
+      }
+    }
+  }
 
 
-      callback(
+  void loadQuotation();
+
+
+  channel =
+    supabase
+      .channel(
+        `custom-quotation-${quotationId}-${Date.now()}`,
+      )
+      .on(
+        "postgres_changes",
         {
+          event:
+            "*",
 
-          id:
-            snapshot.id,
+          schema:
+            "public",
 
-          ...(
-            data as
-              Omit<
-                CustomQuotation,
-                "id"
-              >
-          ),
+          table:
+            QUOTATIONS_TABLE,
 
+          filter:
+            `id=eq.${quotationId}`,
+        },
+        () => {
+          void loadQuotation();
+        },
+      )
+      .on(
+        "postgres_changes",
+        {
+          event:
+            "*",
+
+          schema:
+            "public",
+
+          table:
+            ITEMS_TABLE,
+
+          filter:
+            `quotation_id=eq.${quotationId}`,
+        },
+        () => {
+          void loadQuotation();
+        },
+      )
+      .subscribe(
+        (
+          status,
+        ) => {
+          if (
+            status ===
+              "CHANNEL_ERROR" ||
+            status ===
+              "TIMED_OUT"
+          ) {
+            onError?.(
+              new Error(
+                "Unable to connect to the quotation database.",
+              ),
+            );
+          }
         },
       );
 
-    },
 
-    (
-      firebaseError,
-    ) => {
+  return () => {
+    stopped =
+      true;
 
-      console.error(
-        "Custom quotation realtime listener failed:",
-        firebaseError,
+
+    if (
+      channel
+    ) {
+      void supabase.removeChannel(
+        channel,
       );
-
-
-      if (
-        onError
-      ) {
-
-        onError(
-          new Error(
-            String(
-              firebaseError,
-            ),
-          ),
-        );
-      }
-
-    },
-  );
+    }
+  };
 }
 
 
@@ -765,89 +1326,86 @@ export async function getLatestSentQuotation(
   projectId:
     string,
 ): Promise<
-  CustomQuotation | null
+  CustomQuotation |
+  null
 > {
-
   if (
     !projectId
   ) {
-
     return null;
   }
 
 
-  const quotationsQuery =
-    query(
-      collection(
-        db,
-        PROJECTS_COLLECTION,
+  const {
+    data,
+    error,
+  } =
+    await supabase
+      .from(
+        QUOTATIONS_TABLE,
+      )
+      .select(
+        QUOTATION_COLUMNS,
+      )
+      .eq(
+        "project_id",
         projectId,
-        QUOTATIONS_SUBCOLLECTION,
-      ),
-
-      where(
+      )
+      .in(
         "status",
-        "in",
         [
           "sent",
           "accepted",
           "rejected",
         ],
-      ),
-
-      orderBy(
-        "createdAt",
-        "desc",
-      ),
-    );
-
-
-  const snapshot =
-    await getDocs(
-      quotationsQuery,
-    );
+      )
+      .order(
+        "created_at",
+        {
+          ascending:
+            false,
+        },
+      )
+      .limit(
+        1,
+      )
+      .maybeSingle();
 
 
   if (
-    snapshot.empty
+    error
   ) {
+    throw error;
+  }
 
+
+  if (
+    !data
+  ) {
     return null;
   }
 
 
-  const quotationDoc =
-    snapshot.docs[0];
+  const quotation =
+    data as QuotationRow;
 
 
-  if (
-    !quotationDoc
-  ) {
-
-    return null;
-  }
+  const items =
+    await getQuotationItems(
+      quotation.id,
+    );
 
 
-  return {
-
-    id:
-      quotationDoc.id,
-
-    ...(
-      quotationDoc.data() as
-        Omit<
-          CustomQuotation,
-          "id"
-        >
-    ),
-
-  };
+  return mapQuotation(
+    quotation,
+    items,
+  );
 }
 
 
 /*
  * ==========================================================
- * REALTIME QUOTATIONS LIST
+ * REALTIME QUOTATION LIST
  * ==========================================================
  */
 
@@ -867,100 +1425,184 @@ export function subscribeCustomQuotations(
         Error,
     ) => void,
 ): () => void {
-
   if (
     !projectId
   ) {
-
     callback(
       [],
     );
 
 
-    return () => {};
+    return () => {
+      // No subscription.
+    };
   }
 
 
-  const quotationsRef =
-    collection(
-      db,
-      PROJECTS_COLLECTION,
-      projectId,
-      QUOTATIONS_SUBCOLLECTION,
-    );
+  let stopped =
+    false;
 
 
-  const quotationsQuery =
-    query(
-      quotationsRef,
-      orderBy(
-        "createdAt",
-        "desc",
-      ),
-    );
+  let channel:
+    ReturnType<
+      typeof supabase.channel
+    > | null =
+    null;
 
 
-  return onSnapshot(
-
-    quotationsQuery,
-
-    (
-      snapshot,
-    ) => {
-
-      const quotations:
-        CustomQuotation[] =
-        snapshot.docs.map(
-          (
-            quotationDoc,
-          ) => ({
-
-            id:
-              quotationDoc.id,
-
-            ...(
-              quotationDoc.data() as
-                Omit<
-                  CustomQuotation,
-                  "id"
-                >
-            ),
-
-          }),
-        );
-
-
-      callback(
-        quotations,
-      );
-
-    },
-
-    (
-      firebaseError,
-    ) => {
-
-      console.error(
-        "Custom quotations realtime listener failed:",
-        firebaseError,
-      );
+  async function loadQuotations() {
+    try {
+      const {
+        data,
+        error,
+      } =
+        await supabase
+          .from(
+            QUOTATIONS_TABLE,
+          )
+          .select(
+            QUOTATION_COLUMNS,
+          )
+          .eq(
+            "project_id",
+            projectId,
+          )
+          .order(
+            "created_at",
+            {
+              ascending:
+                false,
+            },
+          );
 
 
       if (
-        onError
+        error
       ) {
+        throw error;
+      }
 
-        onError(
-          new Error(
-            String(
-              firebaseError,
-            ),
+
+      const rows =
+        (
+          data ??
+          []
+        ) as QuotationRow[];
+
+
+      const quotations:
+        CustomQuotation[] =
+        [];
+
+
+      for (
+        const row of
+          rows
+      ) {
+        const items =
+          await getQuotationItems(
+            row.id,
+          );
+
+
+        quotations.push(
+          mapQuotation(
+            row,
+            items,
           ),
         );
       }
 
-    },
-  );
+
+      if (
+        !stopped
+      ) {
+        callback(
+          quotations,
+        );
+      }
+    } catch (
+      error
+    ) {
+      if (
+        !stopped
+      ) {
+        const normalized =
+          error instanceof Error
+            ? error
+            : new Error(
+                "Unable to load quotations.",
+              );
+
+
+        onError?.(
+          normalized,
+        );
+      }
+    }
+  }
+
+
+  void loadQuotations();
+
+
+  channel =
+    supabase
+      .channel(
+        `custom-quotations-${projectId}-${Date.now()}`,
+      )
+      .on(
+        "postgres_changes",
+        {
+          event:
+            "*",
+
+          schema:
+            "public",
+
+          table:
+            QUOTATIONS_TABLE,
+
+          filter:
+            `project_id=eq.${projectId}`,
+        },
+        () => {
+          void loadQuotations();
+        },
+      )
+      .subscribe(
+        (
+          status,
+        ) => {
+          if (
+            status ===
+              "CHANNEL_ERROR" ||
+            status ===
+              "TIMED_OUT"
+          ) {
+            onError?.(
+              new Error(
+                "Unable to connect to the quotation database.",
+              ),
+            );
+          }
+        },
+      );
+
+
+  return () => {
+    stopped =
+      true;
+
+
+    if (
+      channel
+    ) {
+      void supabase.removeChannel(
+        channel,
+      );
+    }
+  };
 }
 
 
@@ -977,46 +1619,15 @@ export async function sendCustomQuotation(
   quotationId:
     string,
 ): Promise<void> {
-
   if (
     !projectId ||
     !quotationId
   ) {
-
     throw new Error(
       "Project and quotation are required.",
     );
   }
 
-
-  const quotationRef =
-    doc(
-      db,
-      PROJECTS_COLLECTION,
-      projectId,
-      QUOTATIONS_SUBCOLLECTION,
-      quotationId,
-    );
-
-
-  await updateDoc(
-    quotationRef,
-    {
-
-      status:
-        "sent",
-
-      updatedAt:
-        serverTimestamp(),
-
-    },
-  );
-
-
-  /*
-   * Load the actual quotation from Firestore after the update.
-   * The project amount is therefore based on the stored quote.
-   */
 
   const quotation =
     await getCustomQuotation(
@@ -1028,45 +1639,90 @@ export async function sendCustomQuotation(
   if (
     !quotation
   ) {
-
     throw new Error(
-      "Quotation could not be found after sending.",
+      "Quotation could not be found.",
     );
   }
 
 
-  const projectRef =
-    doc(
-      db,
-      PROJECTS_COLLECTION,
-      projectId,
-    );
+  const now =
+    new Date().toISOString();
 
 
-  await updateDoc(
-    projectRef,
-    {
+  const {
+    error:
+      quotationError,
+  } =
+    await supabase
+      .from(
+        QUOTATIONS_TABLE,
+      )
+      .update({
+        status:
+          "sent",
 
-      quotationStatus:
-        "sent",
-
-      activeQuotationId:
+        updated_at:
+          now,
+      })
+      .eq(
+        "id",
         quotationId,
+      )
+      .eq(
+        "project_id",
+        projectId,
+      );
 
-      quotedAmount:
-        quotation.total,
 
-      status:
-        "quotation_sent",
+  if (
+    quotationError
+  ) {
+    throw quotationError;
+  }
 
-      paymentStatus:
-        "not_required",
 
-      updatedAt:
-        serverTimestamp(),
+  /*
+   * Keep parent project state in sync.
+   */
 
-    },
-  );
+  const {
+    error:
+      projectError,
+  } =
+    await supabase
+      .from(
+        PROJECTS_TABLE,
+      )
+      .update({
+        quotation_status:
+          "sent",
+
+        active_quotation_id:
+          quotationId,
+
+        quoted_amount:
+          quotation.total,
+
+        status:
+          "quotation_sent",
+
+        payment_status:
+          "not_required",
+
+        updated_at:
+          now,
+      })
+      .eq(
+        "id",
+        projectId,
+      );
+
+
+  if (
+    projectError
+  ) {
+    throw projectError;
+  }
 }
 
 
@@ -1086,32 +1742,28 @@ export async function acceptCustomQuotation(
   userId:
     string,
 ): Promise<void> {
+  const user =
+    auth.currentUser;
+
 
   if (
-    !projectId ||
-    !quotationId ||
-    !userId
+    !user
   ) {
-
     throw new Error(
-      "Project, quotation and user are required.",
+      "You must be signed in.",
     );
   }
 
 
-  const quotationRef =
-    doc(
-      db,
-      PROJECTS_COLLECTION,
-      projectId,
-      QUOTATIONS_SUBCOLLECTION,
-      quotationId,
+  if (
+    user.uid !==
+    userId
+  ) {
+    throw new Error(
+      "User authentication mismatch.",
     );
+  }
 
-
-  /*
-   * Load first so we know the exact current quotation.
-   */
 
   const quotation =
     await getCustomQuotation(
@@ -1123,7 +1775,6 @@ export async function acceptCustomQuotation(
   if (
     !quotation
   ) {
-
     throw new Error(
       "Quotation not found.",
     );
@@ -1134,69 +1785,150 @@ export async function acceptCustomQuotation(
     quotation.status !==
     "sent"
   ) {
-
     throw new Error(
       "Only a sent quotation can be accepted.",
     );
   }
 
 
-  await updateDoc(
-    quotationRef,
-    {
+  /*
+   * Check that the signed-in user owns the project.
+   */
 
-      status:
-        "accepted",
+  const {
+    data:
+      project,
+    error:
+      projectReadError,
+  } =
+    await supabase
+      .from(
+        PROJECTS_TABLE,
+      )
+      .select(
+        "id, user_id",
+      )
+      .eq(
+        "id",
+        projectId,
+      )
+      .maybeSingle();
 
-      acceptedBy:
-        userId,
 
-      acceptedAt:
-        serverTimestamp(),
-
-      updatedAt:
-        serverTimestamp(),
-
-    },
-  );
+  if (
+    projectReadError
+  ) {
+    throw projectReadError;
+  }
 
 
-  const projectRef =
-    doc(
-      db,
-      PROJECTS_COLLECTION,
-      projectId,
+  if (
+    !project ||
+    project.user_id !==
+      user.uid
+  ) {
+    throw new Error(
+      "You are not authorized to accept this quotation.",
     );
+  }
 
 
-  await updateDoc(
-    projectRef,
-    {
+  const now =
+    new Date().toISOString();
 
-      quotationStatus:
-        "accepted",
 
-      activeQuotationId:
+  const nextProjectStatus =
+    quotation.paymentRequired
+      ? "payment_pending"
+      : "confirmed";
+
+
+  const nextPaymentStatus =
+    quotation.paymentRequired
+      ? "pending"
+      : "not_required";
+
+
+  const {
+    error:
+      quotationError,
+  } =
+    await supabase
+      .from(
+        QUOTATIONS_TABLE,
+      )
+      .update({
+        status:
+          "accepted",
+
+        accepted_by:
+          user.uid,
+
+        accepted_at:
+          now,
+
+        updated_at:
+          now,
+      })
+      .eq(
+        "id",
         quotationId,
+      )
+      .eq(
+        "project_id",
+        projectId,
+      );
 
-      quotedAmount:
-        quotation.total,
 
-      status:
-        quotation.paymentRequired
-          ? "payment_pending"
-          : "confirmed",
+  if (
+    quotationError
+  ) {
+    throw quotationError;
+  }
 
-      paymentStatus:
-        quotation.paymentRequired
-          ? "pending"
-          : "not_required",
 
-      updatedAt:
-        serverTimestamp(),
+  const {
+    error:
+      parentProjectError,
+  } =
+    await supabase
+      .from(
+        PROJECTS_TABLE,
+      )
+      .update({
+        quotation_status:
+          "accepted",
 
-    },
-  );
+        active_quotation_id:
+          quotationId,
+
+        quoted_amount:
+          quotation.total,
+
+        status:
+          nextProjectStatus,
+
+        payment_status:
+          nextPaymentStatus,
+
+        updated_at:
+          now,
+      })
+      .eq(
+        "id",
+        projectId,
+      )
+      .eq(
+        "user_id",
+        user.uid,
+      );
+
+
+  if (
+    parentProjectError
+  ) {
+    throw parentProjectError;
+  }
 }
 
 
@@ -1216,40 +1948,32 @@ export async function rejectCustomQuotation(
   reason:
     string,
 ): Promise<void> {
+  const user =
+    auth.currentUser;
+
 
   if (
-    !projectId ||
-    !quotationId
+    !user
   ) {
-
     throw new Error(
-      "Project and quotation are required.",
+      "You must be signed in.",
     );
   }
 
 
   const cleanReason =
-    reason.trim();
+    cleanString(
+      reason,
+    );
 
 
   if (
     !cleanReason
   ) {
-
     throw new Error(
       "A rejection reason is required.",
     );
   }
-
-
-  const quotationRef =
-    doc(
-      db,
-      PROJECTS_COLLECTION,
-      projectId,
-      QUOTATIONS_SUBCOLLECTION,
-      quotationId,
-    );
 
 
   const quotation =
@@ -1262,7 +1986,6 @@ export async function rejectCustomQuotation(
   if (
     !quotation
   ) {
-
     throw new Error(
       "Quotation not found.",
     );
@@ -1273,57 +1996,126 @@ export async function rejectCustomQuotation(
     quotation.status !==
     "sent"
   ) {
-
     throw new Error(
       "Only a sent quotation can be rejected.",
     );
   }
 
 
-  await updateDoc(
-    quotationRef,
-    {
+  const {
+    data:
+      project,
+    error:
+      projectError,
+  } =
+    await supabase
+      .from(
+        PROJECTS_TABLE,
+      )
+      .select(
+        "id, user_id",
+      )
+      .eq(
+        "id",
+        projectId,
+      )
+      .maybeSingle();
 
-      status:
-        "rejected",
 
-      rejectionReason:
-        cleanReason,
-
-      updatedAt:
-        serverTimestamp(),
-
-    },
-  );
+  if (
+    projectError
+  ) {
+    throw projectError;
+  }
 
 
-  const projectRef =
-    doc(
-      db,
-      PROJECTS_COLLECTION,
-      projectId,
+  if (
+    !project ||
+    project.user_id !==
+      user.uid
+  ) {
+    throw new Error(
+      "You are not authorized to reject this quotation.",
     );
+  }
 
 
-  await updateDoc(
-    projectRef,
-    {
+  const now =
+    new Date().toISOString();
 
-      quotationStatus:
-        "rejected",
 
-      status:
-        "discussion",
+  const {
+    error:
+      quotationUpdateError,
+  } =
+    await supabase
+      .from(
+        QUOTATIONS_TABLE,
+      )
+      .update({
+        status:
+          "rejected",
 
-      paymentStatus:
-        "not_required",
+        rejection_reason:
+          cleanReason,
 
-      activeQuotationId:
+        updated_at:
+          now,
+      })
+      .eq(
+        "id",
         quotationId,
+      )
+      .eq(
+        "project_id",
+        projectId,
+      );
 
-      updatedAt:
-        serverTimestamp(),
 
-    },
-  );
+  if (
+    quotationUpdateError
+  ) {
+    throw quotationUpdateError;
+  }
+
+
+  const {
+    error:
+      parentProjectError,
+  } =
+    await supabase
+      .from(
+        PROJECTS_TABLE,
+      )
+      .update({
+        quotation_status:
+          "rejected",
+
+        status:
+          "discussion",
+
+        payment_status:
+          "not_required",
+
+        active_quotation_id:
+          quotationId,
+
+        updated_at:
+          now,
+      })
+      .eq(
+        "id",
+        projectId,
+      )
+      .eq(
+        "user_id",
+        user.uid,
+      );
+
+
+  if (
+    parentProjectError
+  ) {
+    throw parentProjectError;
+  }
 }

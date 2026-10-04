@@ -1,763 +1,564 @@
 import {
-  addDoc,
-  collection,
-  doc,
-  getDoc,
-  getDocs,
-  orderBy,
-  query,
-  serverTimestamp,
-  updateDoc,
-  where,
-} from "firebase/firestore";
+  auth,
+} from "../firebase/config";
 
 import {
-  auth,
-  db,
-} from "../firebase/config";
+  supabase,
+} from "../lib/supabase";
 
 import type {
   Order,
   OrderItem,
   OrderStatus,
+  PaymentStatus,
+  ShippingAddress,
 } from "../types/order";
 
-import type {
-  Product,
-} from "../types/product";
-
-import {
-  backupOrderToGoogleSheets,
-} from "./googleSheets.service";
-
 
 /*
  * ==========================================================
- * ORDERS COLLECTION
- * ==========================================================
- */
-
-const ordersCollection =
-  collection(
-    db,
-    "orders",
-  );
-
-
-/*
- * ==========================================================
- * ORDER INPUT
+ * INPUT TYPES
  * ==========================================================
  */
 
 export interface SecureOrderItem {
   productId: string;
+
   quantity: number;
 }
 
 
 export interface SecureShippingAddress {
   name: string;
+
   phone: string;
+
   email: string;
+
   address: string;
+
   city: string;
+
   state: string;
+
   pincode: string;
 }
 
 
 export interface SecureOrderResponse {
   orderId: string;
+
   subtotal: number;
+
   shipping: number;
+
   total: number;
 }
 
 
 /*
  * ==========================================================
- * CREATE ORDER
+ * DATABASE ROW TYPES
  * ==========================================================
  */
 
-export async function createSecureOrder(
-  items: SecureOrderItem[],
-  shippingAddress: SecureShippingAddress,
-): Promise<SecureOrderResponse> {
+interface OrderRow {
+  id: string;
 
-  /*
-   * ========================================================
-   * AUTHENTICATION
-   * ========================================================
-   */
+  user_id: string;
 
-  const currentUser =
-    auth.currentUser;
+  user_email: string;
+
+  customer:
+    Record<string, unknown> |
+    null;
+
+  shipping_address:
+    ShippingAddress |
+    Record<string, unknown> |
+    null;
+
+  billing_address:
+    ShippingAddress |
+    Record<string, unknown> |
+    null;
+
+  billing_address_same_as_shipping:
+    boolean;
+
+  subtotal: number;
+
+  shipping: number;
+
+  tax: number;
+
+  discount: number;
+
+  total: number;
+
+  currency: string;
+
+  status: OrderStatus;
+
+  payment_status: PaymentStatus;
+
+  payment_method: string;
+
+  razorpay_order_id:
+    string |
+    null;
+
+  razorpay_payment_id:
+    string |
+    null;
+
+  razorpay_signature:
+    string |
+    null;
+
+  razorpay_payment_status:
+    string |
+    null;
+
+  razorpay_amount:
+    number |
+    null;
+
+  razorpay_currency:
+    string |
+    null;
+
+  receipt:
+    string |
+    null;
+
+  created_at: string;
+
+  updated_at: string;
+}
 
 
-  if (!currentUser) {
-    throw new Error(
-      "You must be signed in to place an order.",
-    );
-  }
+interface OrderItemRow {
+  order_id: string;
+
+  product_id: string;
+
+  name: string;
+
+  sku: string | null;
+
+  price: number;
+
+  quantity: number;
+
+  line_total: number;
+
+  image: string | null;
+
+  category: string | null;
+}
 
 
-  /*
-   * ========================================================
-   * BASIC VALIDATION
-   * ========================================================
-   */
+/*
+ * ==========================================================
+ * COLUMNS
+ * ==========================================================
+ */
 
+const ORDER_COLUMNS = `
+  id,
+  user_id,
+  user_email,
+  customer,
+  shipping_address,
+  billing_address,
+  billing_address_same_as_shipping,
+  subtotal,
+  shipping,
+  tax,
+  discount,
+  total,
+  currency,
+  status,
+  payment_status,
+  payment_method,
+  razorpay_order_id,
+  razorpay_payment_id,
+  razorpay_signature,
+  razorpay_payment_status,
+  razorpay_amount,
+  razorpay_currency,
+  receipt,
+  created_at,
+  updated_at
+`;
+
+
+const ORDER_ITEM_COLUMNS = `
+  order_id,
+  product_id,
+  name,
+  sku,
+  price,
+  quantity,
+  line_total,
+  image,
+  category
+`;
+
+
+/*
+ * ==========================================================
+ * ERROR
+ * ==========================================================
+ */
+
+function getErrorMessage(
+  error: unknown,
+  fallback: string,
+): string {
   if (
-    !Array.isArray(items) ||
-    items.length === 0
+    error instanceof Error &&
+    error.message.trim()
   ) {
-    throw new Error(
-      "Your cart is empty.",
-    );
+    return error.message;
   }
 
 
-  if (!shippingAddress) {
-    throw new Error(
-      "Delivery address is required.",
-    );
-  }
+  return fallback;
+}
 
 
-  /*
-   * ========================================================
-   * CLEAN CUSTOMER DETAILS
-   * ========================================================
-   */
+/*
+ * ==========================================================
+ * ORDER ITEM MAPPER
+ * ==========================================================
+ */
 
-  const cleanedName =
-    String(
-      shippingAddress.name ?? "",
-    ).trim();
+function mapOrderItem(
+  row: OrderItemRow,
+): OrderItem {
+  return {
+    productId:
+      row.product_id,
 
+    name:
+      row.name,
 
-  const cleanedPhone =
-    String(
-      shippingAddress.phone ?? "",
-    ).replace(
-      /\D/g,
-      "",
-    );
+    sku:
+      row.sku ??
+      undefined,
 
+    price:
+      Number(
+        row.price,
+      ),
 
-  const cleanedEmail =
-    String(
-      shippingAddress.email ||
-      currentUser.email ||
-      "",
-    )
-      .trim()
-      .toLowerCase();
+    quantity:
+      Number(
+        row.quantity,
+      ),
 
+    image:
+      row.image ??
+      undefined,
 
-  const cleanedAddress =
-    String(
-      shippingAddress.address ?? "",
-    ).trim();
-
-
-  const cleanedCity =
-    String(
-      shippingAddress.city ?? "",
-    ).trim();
+    category:
+      row.category ??
+      undefined,
+  };
+}
 
 
-  const cleanedState =
-    String(
-      shippingAddress.state ?? "",
-    ).trim();
+/*
+ * ==========================================================
+ * ORDER MAPPER
+ * ==========================================================
+ */
+
+function mapOrder(
+  row: OrderRow,
+  itemRows: OrderItemRow[],
+): Order {
+  return {
+    id:
+      row.id,
+
+    userId:
+      row.user_id,
+
+    userEmail:
+      row.user_email,
+
+    customer:
+      row.customer ??
+      undefined,
+
+    items:
+      itemRows.map(
+        mapOrderItem,
+      ),
+
+    shippingAddress:
+      normalizeAddress(
+        row.shipping_address,
+      ),
+
+    billingAddress:
+      row.billing_address
+        ? normalizeAddress(
+            row.billing_address,
+          )
+        : null,
+
+    billingAddressSameAsShipping:
+      Boolean(
+        row.billing_address_same_as_shipping,
+      ),
+
+    subtotal:
+      Number(
+        row.subtotal,
+      ),
+
+    shipping:
+      Number(
+        row.shipping,
+      ),
+
+    tax:
+      Number(
+        row.tax,
+      ),
+
+    discount:
+      Number(
+        row.discount,
+      ),
+
+    total:
+      Number(
+        row.total,
+      ),
+
+    currency:
+      row.currency ||
+      "INR",
+
+    status:
+      row.status,
+
+    paymentStatus:
+      row.payment_status,
+
+    paymentMethod:
+      row.payment_method,
+
+    razorpayOrderId:
+      row.razorpay_order_id ??
+      undefined,
+
+    razorpayPaymentId:
+      row.razorpay_payment_id ??
+      undefined,
+
+    razorpaySignature:
+      row.razorpay_signature ??
+      undefined,
+
+    razorpayPaymentStatus:
+      row.razorpay_payment_status ??
+      undefined,
+
+    razorpayAmount:
+      row.razorpay_amount ??
+      undefined,
+
+    razorpayCurrency:
+      row.razorpay_currency ??
+      undefined,
+
+    receipt:
+      row.receipt ??
+      undefined,
+
+    createdAt:
+      row.created_at,
+
+    updatedAt:
+      row.updated_at,
+  };
+}
 
 
-  const cleanedPincode =
-    String(
-      shippingAddress.pincode ?? "",
-    ).trim();
+/*
+ * ==========================================================
+ * ADDRESS NORMALIZER
+ * ==========================================================
+ */
+
+function normalizeAddress(
+  value:
+    | ShippingAddress
+    | Record<string, unknown>
+    | null,
+): ShippingAddress {
+  const data =
+    value ?? {};
 
 
-  if (!cleanedName) {
-    throw new Error(
-      "Customer name is required.",
-    );
-  }
+  const record =
+    data as Record<
+      string,
+      unknown
+    >;
 
 
-  if (!cleanedPhone) {
-    throw new Error(
-      "Phone number is required.",
-    );
-  }
+  return {
+    name:
+      String(
+        record.name ??
+        "",
+      ),
+
+    phone:
+      String(
+        record.phone ??
+        "",
+      ),
+
+    email:
+      String(
+        record.email ??
+        "",
+      ),
+
+    address:
+      String(
+        record.address ??
+        "",
+      ),
+
+    city:
+      String(
+        record.city ??
+        "",
+      ),
+
+    state:
+      String(
+        record.state ??
+        "",
+      ),
+
+    pincode:
+      String(
+        record.pincode ??
+        "",
+      ),
+
+    country:
+      typeof record.country ===
+      "string"
+        ? record.country
+        : undefined,
+
+    companyName:
+      typeof record.companyName ===
+      "string"
+        ? record.companyName
+        : undefined,
+
+    gstin:
+      typeof record.gstin ===
+      "string"
+        ? record.gstin
+        : undefined,
+  };
+}
 
 
-  if (!cleanedEmail) {
-    throw new Error(
-      "Email address is required.",
-    );
-  }
+/*
+ * ==========================================================
+ * GET ORDER ITEMS
+ * ==========================================================
+ */
 
-
-  if (!cleanedAddress) {
-    throw new Error(
-      "Delivery address is required.",
-    );
-  }
-
-
-  if (!cleanedCity) {
-    throw new Error(
-      "City is required.",
-    );
-  }
-
-
-  if (!cleanedState) {
-    throw new Error(
-      "State is required.",
-    );
-  }
-
-
-  if (!cleanedPincode) {
-    throw new Error(
-      "Pincode is required.",
-    );
-  }
-
-
-  /*
-   * ========================================================
-   * COMBINE DUPLICATE PRODUCT IDS
-   * ========================================================
-   */
-
-  const quantities =
+async function getOrderItems(
+  orderIds: string[],
+): Promise<
+  Map<
+    string,
+    OrderItemRow[]
+  >
+> {
+  const result =
     new Map<
       string,
-      number
+      OrderItemRow[]
     >();
 
 
-  for (
-    const item of items
+  if (
+    orderIds.length ===
+    0
   ) {
-
-    if (
-      !item ||
-      typeof item.productId !==
-        "string" ||
-      item.productId.trim() === ""
-    ) {
-      throw new Error(
-        "Invalid product in your cart.",
-      );
-    }
-
-
-    const quantity =
-      Number(
-        item.quantity,
-      );
-
-
-    if (
-      !Number.isInteger(
-        quantity,
-      ) ||
-      quantity <= 0
-    ) {
-      throw new Error(
-        "Invalid product quantity.",
-      );
-    }
-
-
-    const productId =
-      item.productId.trim();
-
-
-    quantities.set(
-      productId,
-      (
-        quantities.get(
-          productId,
-        ) ?? 0
-      ) + quantity,
-    );
-  }
-
-
-  /*
-   * ========================================================
-   * BUILD ORDER ITEMS
-   * ========================================================
-   */
-
-  const orderItems:
-    OrderItem[] = [];
-
-
-  let subtotal =
-    0;
-
-
-  for (
-    const [
-      productId,
-      quantity,
-    ] of quantities
-  ) {
-
-    /*
-     * ------------------------------------------------------
-     * READ PRODUCT
-     * ------------------------------------------------------
-     */
-
-    const productSnapshot =
-      await getDoc(
-        doc(
-          db,
-          "products",
-          productId,
-        ),
-      );
-
-
-    if (
-      !productSnapshot.exists()
-    ) {
-      throw new Error(
-        "One of the products in your cart no longer exists.",
-      );
-    }
-
-
-    const product =
-      productSnapshot.data() as
-        Partial<Product>;
-
-
-    /*
-     * ------------------------------------------------------
-     * REQUIRED PRODUCT DATA
-     * ------------------------------------------------------
-     */
-
-    const name =
-      typeof product.name ===
-        "string" &&
-      product.name.trim()
-        ? product.name.trim()
-        : "Unnamed product";
-
-
-    const price =
-      typeof product.price ===
-        "number" &&
-      Number.isFinite(
-        product.price,
-      ) &&
-      product.price >= 0
-        ? product.price
-        : 0;
-
-
-    const stock =
-      typeof product.stock ===
-        "number" &&
-      Number.isFinite(
-        product.stock,
-      )
-        ? product.stock
-        : 0;
-
-
-    /*
-     * ------------------------------------------------------
-     * AVAILABILITY
-     * ------------------------------------------------------
-     */
-
-    const available =
-      product.available ??
-      product.active ??
-      true;
-
-
-    if (
-      available !== true
-    ) {
-      throw new Error(
-        `${name} is currently unavailable.`,
-      );
-    }
-
-
-    /*
-     * ------------------------------------------------------
-     * STOCK CHECK
-     * ------------------------------------------------------
-     */
-
-    if (
-      quantity > stock
-    ) {
-      throw new Error(
-        `${name} has only ${stock} unit${stock === 1 ? "" : "s"} available.`,
-      );
-    }
-
-
-    /*
-     * ------------------------------------------------------
-     * LINE TOTAL
-     * ------------------------------------------------------
-     */
-
-    const lineTotal =
-      price *
-      quantity;
-
-
-    subtotal +=
-      lineTotal;
-
-
-    /*
-     * ======================================================
-     * IMPORTANT FIRESTORE FIX
-     * ======================================================
-     *
-     * Never put undefined into Firestore.
-     *
-     * We start with only fields that definitely have values,
-     * then add optional fields only when they actually exist.
-     */
-
-    const orderItem:
-      OrderItem = {
-        productId:
-          productSnapshot.id,
-
-        name,
-
-        price,
-
-        quantity,
-      };
-
-
-    /*
-     * Optional SKU
-     */
-
-    if (
-      typeof product.sku ===
-        "string" &&
-      product.sku.trim()
-        .length > 0
-    ) {
-      orderItem.sku =
-        product.sku.trim();
-    }
-
-
-    /*
-     * Optional image
-     */
-
-    const productImage =
-      typeof product.image ===
-        "string" &&
-      product.image.trim()
-        .length > 0
-        ? product.image.trim()
-        : (
-            typeof product.imageUrl ===
-              "string" &&
-            product.imageUrl.trim()
-              .length > 0
-              ? product.imageUrl.trim()
-              : ""
-          );
-
-
-    if (
-      productImage
-    ) {
-      orderItem.image =
-        productImage;
-    }
-
-
-    /*
-     * Optional category
-     */
-
-    if (
-      typeof product.category ===
-        "string" &&
-      product.category.trim()
-        .length > 0
-    ) {
-      orderItem.category =
-        product.category.trim();
-    }
-
-
-    orderItems.push(
-      orderItem,
-    );
-  }
-
-
-  /*
-   * ========================================================
-   * ROUND MONEY
-   * ========================================================
-   */
-
-  subtotal =
-    roundMoney(
-      subtotal,
-    );
-
-
-  /*
-   * ========================================================
-   * SHIPPING
-   * ========================================================
-   *
-   * ₹1000 and above = FREE
-   * Below ₹1000 = ₹60
-   */
-
-  const shipping =
-    subtotal >= 1000
-      ? 0
-      : 60;
-
-
-  /*
-   * ========================================================
-   * TOTAL
-   * ========================================================
-   */
-
-  const total =
-    roundMoney(
-      subtotal +
-      shipping,
-    );
-
-
-  /*
-   * ========================================================
-   * FIRESTORE ORDER
-   * ========================================================
-   */
-
-  try {
-
-    const orderDocument =
-      await addDoc(
-        ordersCollection,
-        {
-          userId:
-            currentUser.uid,
-
-          userEmail:
-            currentUser.email ||
-            cleanedEmail,
-
-          items:
-            orderItems,
-
-          shippingAddress: {
-            name:
-              cleanedName,
-
-            phone:
-              cleanedPhone,
-
-            email:
-              cleanedEmail,
-
-            address:
-              cleanedAddress,
-
-            city:
-              cleanedCity,
-
-            state:
-              cleanedState,
-
-            pincode:
-              cleanedPincode,
-          },
-
-          subtotal,
-
-          shipping,
-
-          total,
-
-          currency:
-            "INR",
-
-          status:
-            "pending",
-
-          paymentStatus:
-            "pending",
-
-          paymentMethod:
-            "pending",
-
-          createdAt:
-            serverTimestamp(),
-
-          updatedAt:
-            serverTimestamp(),
-        },
-      );
-
-
-    /*
-     * ======================================================
-     * RESULT
-     * ======================================================
-     */
-
-    const result:
-      SecureOrderResponse = {
-        orderId:
-          orderDocument.id,
-
-        subtotal,
-
-        shipping,
-
-        total,
-      };
-
-
-    /*
-     * ======================================================
-     * GOOGLE SHEETS BACKUP
-     * ======================================================
-     *
-     * Firestore remains the primary order database.
-     * Sheets failure must NOT fail the customer order.
-     */
-
-    try {
-
-      const fullOrder =
-        await getOrderById(
-          orderDocument.id,
-        );
-
-
-      if (
-        fullOrder
-      ) {
-
-        void backupOrderToGoogleSheets(
-          {
-            orderId:
-              fullOrder.id,
-
-            userId:
-              fullOrder.userId,
-
-            userEmail:
-              fullOrder.userEmail,
-
-            items:
-              fullOrder.items,
-
-            shippingAddress:
-              fullOrder.shippingAddress,
-
-            subtotal:
-              fullOrder.subtotal,
-
-            shipping:
-              fullOrder.shipping,
-
-            total:
-              fullOrder.total,
-
-            currency:
-              fullOrder.currency,
-
-            paymentStatus:
-              fullOrder.paymentStatus,
-
-            paymentMethod:
-              fullOrder.paymentMethod,
-
-            status:
-              fullOrder.status,
-
-            createdAt:
-              getOrderTimestamp(
-                fullOrder.createdAt,
-              ),
-          },
-        ).catch(
-          (
-            sheetError,
-          ) => {
-
-            console.error(
-              "Google Sheets backup failed:",
-              sheetError,
-            );
-
-          },
-        );
-
-      }
-
-    } catch (
-      sheetPreparationError
-    ) {
-
-      console.error(
-        "Unable to prepare Google Sheets backup:",
-        sheetPreparationError,
-      );
-
-    }
-
-
     return result;
+  }
 
-  } catch (
+
+  const {
+    data,
+    error,
+  } =
+    await supabase
+      .from(
+        "order_items",
+      )
+      .select(
+        ORDER_ITEM_COLUMNS,
+      )
+      .in(
+        "order_id",
+        orderIds,
+      );
+
+
+  if (
     error
   ) {
+    throw error;
+  }
 
-    console.error(
-      "Order creation failed:",
-      error,
+
+  for (
+    const row of
+      (
+        data ??
+        []
+      ) as OrderItemRow[]
+  ) {
+
+    const existing =
+      result.get(
+        row.order_id,
+      ) ??
+      [];
+
+
+    existing.push(
+      row,
     );
 
 
-    throw new Error(
-      getErrorMessage(
-        error,
-        "Unable to place your order. Please try again.",
-      ),
+    result.set(
+      row.order_id,
+      existing,
     );
   }
+
+
+  return result;
 }
 
 
@@ -770,97 +571,135 @@ export async function createSecureOrder(
 export async function getOrderById(
   orderId: string,
 ): Promise<Order | null> {
-
-  if (!orderId) {
-    return null;
-  }
-
-
-  const snapshot =
-    await getDoc(
-      doc(
-        db,
-        "orders",
-        orderId,
-      ),
-    );
-
-
   if (
-    !snapshot.exists()
+    !orderId.trim()
   ) {
     return null;
   }
 
 
-  return {
-    id:
-      snapshot.id,
+  const {
+    data,
+    error,
+  } =
+    await supabase
+      .from(
+        "orders",
+      )
+      .select(
+        ORDER_COLUMNS,
+      )
+      .eq(
+        "id",
+        orderId,
+      )
+      .maybeSingle();
 
-    ...(
-      snapshot.data() as
-        Omit<
-          Order,
-          "id"
-        >
-    ),
-  };
+
+  if (
+    error
+  ) {
+    throw error;
+  }
+
+
+  if (
+    !data
+  ) {
+    return null;
+  }
+
+
+  const itemMap =
+    await getOrderItems(
+      [orderId],
+    );
+
+
+  return mapOrder(
+    data as OrderRow,
+    itemMap.get(
+      orderId,
+    ) ??
+      [],
+  );
 }
 
 
 /*
  * ==========================================================
- * GET CUSTOMER ORDERS
+ * GET CURRENT USER ORDERS
  * ==========================================================
  */
 
 export async function getUserOrders(
   userId: string,
 ): Promise<Order[]> {
-
-  if (!userId) {
+  if (
+    !userId.trim()
+  ) {
     return [];
   }
 
 
-  const ordersQuery =
-    query(
-      ordersCollection,
-
-      where(
-        "userId",
-        "==",
+  const {
+    data,
+    error,
+  } =
+    await supabase
+      .from(
+        "orders",
+      )
+      .select(
+        ORDER_COLUMNS,
+      )
+      .eq(
+        "user_id",
         userId,
-      ),
+      )
+      .order(
+        "created_at",
+        {
+          ascending:
+            false,
+        },
+      );
 
-      orderBy(
-        "createdAt",
-        "desc",
+
+  if (
+    error
+  ) {
+    throw error;
+  }
+
+
+  const rows =
+    (data ??
+      []) as OrderRow[];
+
+
+  const itemMap =
+    await getOrderItems(
+      rows.map(
+        (
+          row,
+        ) =>
+          row.id,
       ),
     );
 
 
-  const snapshot =
-    await getDocs(
-      ordersQuery,
-    );
-
-
-  return snapshot.docs.map(
+  return rows.map(
     (
-      document,
-    ) => ({
-      id:
-        document.id,
-
-      ...(
-        document.data() as
-          Omit<
-            Order,
-            "id"
-          >
+      row,
+    ) =>
+      mapOrder(
+        row,
+        itemMap.get(
+          row.id,
+        ) ??
+          [],
       ),
-    }),
   );
 }
 
@@ -869,44 +708,66 @@ export async function getUserOrders(
  * ==========================================================
  * GET ALL ORDERS
  * ==========================================================
+ *
+ * Admin RLS allows all orders.
  */
 
-export async function getAllOrders(): Promise<
-  Order[]
-> {
+export async function getAllOrders():
+  Promise<Order[]> {
+  const {
+    data,
+    error,
+  } =
+    await supabase
+      .from(
+        "orders",
+      )
+      .select(
+        ORDER_COLUMNS,
+      )
+      .order(
+        "created_at",
+        {
+          ascending:
+            false,
+        },
+      );
 
-  const ordersQuery =
-    query(
-      ordersCollection,
 
-      orderBy(
-        "createdAt",
-        "desc",
+  if (
+    error
+  ) {
+    throw error;
+  }
+
+
+  const rows =
+    (data ??
+      []) as OrderRow[];
+
+
+  const itemMap =
+    await getOrderItems(
+      rows.map(
+        (
+          row,
+        ) =>
+          row.id,
       ),
     );
 
 
-  const snapshot =
-    await getDocs(
-      ordersQuery,
-    );
-
-
-  return snapshot.docs.map(
+  return rows.map(
     (
-      document,
-    ) => ({
-      id:
-        document.id,
-
-      ...(
-        document.data() as
-          Omit<
-            Order,
-            "id"
-          >
+      row,
+    ) =>
+      mapOrder(
+        row,
+        itemMap.get(
+          row.id,
+        ) ??
+          [],
       ),
-    }),
   );
 }
 
@@ -921,27 +782,285 @@ export async function updateOrderStatus(
   orderId: string,
   status: OrderStatus,
 ): Promise<void> {
-
-  if (!orderId) {
+  if (
+    !orderId.trim()
+  ) {
     throw new Error(
       "Order ID is required.",
     );
   }
 
 
-  await updateDoc(
-    doc(
-      db,
-      "orders",
-      orderId,
-    ),
-    {
-      status,
+  const {
+    error,
+  } =
+    await supabase
+      .from(
+        "orders",
+      )
+      .update({
+        status,
 
-      updatedAt:
-        serverTimestamp(),
-    },
-  );
+        updated_at:
+          new Date().toISOString(),
+      })
+      .eq(
+        "id",
+        orderId,
+      );
+
+
+  if (
+    error
+  ) {
+    throw error;
+  }
+}
+
+
+/*
+ * ==========================================================
+ * REALTIME ORDERS
+ * ==========================================================
+ */
+
+export function subscribeToOrders(
+  onChange: (
+    orders: Order[],
+  ) => void,
+
+  onError?: (
+    error: Error,
+  ) => void,
+): () => void {
+  let stopped =
+    false;
+
+
+  let channel:
+    ReturnType<
+      typeof supabase.channel
+    > | null =
+    null;
+
+
+  async function load() {
+    try {
+      const data =
+        await getAllOrders();
+
+
+      if (
+        !stopped
+      ) {
+        onChange(
+          data,
+        );
+      }
+    } catch (
+      error
+    ) {
+      const normalized =
+        error instanceof Error
+          ? error
+          : new Error(
+              "Unable to load orders.",
+            );
+
+
+      onError?.(
+        normalized,
+      );
+    }
+  }
+
+
+  void load();
+
+
+  channel =
+    supabase
+      .channel(
+        `nexletronics-orders-${Date.now()}`,
+      )
+      .on(
+        "postgres_changes",
+        {
+          event:
+            "*",
+
+          schema:
+            "public",
+
+          table:
+            "orders",
+        },
+        () => {
+          void load();
+        },
+      )
+      .subscribe(
+        (
+          status,
+        ) => {
+          if (
+            status ===
+              "CHANNEL_ERROR" ||
+            status ===
+              "TIMED_OUT"
+          ) {
+            onError?.(
+              new Error(
+                "Unable to connect to the realtime orders database.",
+              ),
+            );
+          }
+        },
+      );
+
+
+  return () => {
+    stopped =
+      true;
+
+
+    if (
+      channel
+    ) {
+      void supabase.removeChannel(
+        channel,
+      );
+    }
+  };
+}
+
+
+/*
+ * ==========================================================
+ * SECURE ORDER API WRAPPER
+ * ==========================================================
+ *
+ * This preserves the existing createSecureOrder export,
+ * but the actual order/payment session is now created by
+ * the secure Vercel API.
+ */
+
+export async function createSecureOrder(
+  items: SecureOrderItem[],
+  shippingAddress: SecureShippingAddress,
+): Promise<SecureOrderResponse> {
+  const user =
+    auth.currentUser;
+
+
+  if (
+    !user
+  ) {
+    throw new Error(
+      "You must be signed in to place an order.",
+    );
+  }
+
+
+  if (
+    !Array.isArray(
+      items,
+    ) ||
+    items.length ===
+      0
+  ) {
+    throw new Error(
+      "Your cart is empty.",
+    );
+  }
+
+
+  const idToken =
+    await user.getIdToken(
+      true,
+    );
+
+
+  const response =
+    await fetch(
+      "/api/razorpay/create-order",
+      {
+        method:
+          "POST",
+
+        headers: {
+          Authorization:
+            `Bearer ${idToken}`,
+
+          "Content-Type":
+            "application/json",
+        },
+
+        body:
+          JSON.stringify({
+            items,
+
+            customer: {
+              name:
+                shippingAddress.name,
+
+              email:
+                shippingAddress.email,
+
+              phone:
+                shippingAddress.phone,
+            },
+
+            shippingAddress,
+
+            billingAddress:
+              shippingAddress,
+
+            billingAddressSameAsShipping:
+              true,
+          }),
+      },
+    );
+
+
+  const data =
+    await response.json();
+
+
+  if (
+    !response.ok ||
+    data?.success !==
+      true
+  ) {
+    throw new Error(
+      data?.error ??
+        "Unable to create secure payment order.",
+    );
+  }
+
+
+  return {
+    orderId:
+      data.orderId,
+
+    subtotal:
+      Number(
+        data.totals?.subtotal ??
+        0,
+      ),
+
+    shipping:
+      Number(
+        data.totals?.shipping ??
+        0,
+      ),
+
+    total:
+      Number(
+        data.totals?.total ??
+        0,
+      ),
+  };
 }
 
 
@@ -951,10 +1070,9 @@ export async function updateOrderStatus(
  * ==========================================================
  */
 
-function roundMoney(
+export function roundMoney(
   value: number,
 ): number {
-
   return (
     Math.round(
       (
@@ -969,144 +1087,15 @@ function roundMoney(
 
 /*
  * ==========================================================
- * FIRESTORE TIMESTAMP → STRING
- * ==========================================================
- */
-
-function getOrderTimestamp(
-  value: unknown,
-): string {
-
-  if (
-    typeof value ===
-      "object" &&
-    value !== null &&
-    "toDate" in value
-  ) {
-
-    const timestamp =
-      value as {
-        toDate?: unknown;
-      };
-
-
-    if (
-      typeof timestamp.toDate ===
-      "function"
-    ) {
-
-      try {
-
-        const date =
-          timestamp.toDate();
-
-
-        if (
-          date instanceof Date &&
-          !Number.isNaN(
-            date.getTime(),
-          )
-        ) {
-          return date.toISOString();
-        }
-
-      } catch {
-        // Fall through.
-      }
-    }
-  }
-
-
-  if (
-    value instanceof Date
-  ) {
-
-    if (
-      !Number.isNaN(
-        value.getTime(),
-      )
-    ) {
-      return value.toISOString();
-    }
-  }
-
-
-  if (
-    typeof value ===
-      "string" ||
-    typeof value ===
-      "number"
-  ) {
-
-    const date =
-      new Date(
-        value,
-      );
-
-
-    if (
-      !Number.isNaN(
-        date.getTime(),
-      )
-    ) {
-      return date.toISOString();
-    }
-  }
-
-
-  return new Date().toISOString();
-}
-
-
-/*
- * ==========================================================
  * ERROR MESSAGE
  * ==========================================================
  */
 
-function getErrorMessage(
+export function orderErrorMessage(
   error: unknown,
-  fallback: string,
 ): string {
-
-  if (
-    error instanceof Error
-  ) {
-    return error.message;
-  }
-
-
-  if (
-    typeof error ===
-    "string"
-  ) {
-    return error;
-  }
-
-
-  if (
-    error &&
-    typeof error ===
-      "object" &&
-    "message" in error
-  ) {
-
-    const message =
-      (
-        error as {
-          message?: unknown;
-        }
-      ).message;
-
-
-    if (
-      typeof message ===
-      "string"
-    ) {
-      return message;
-    }
-  }
-
-
-  return fallback;
+  return getErrorMessage(
+    error,
+    "Unable to process the order.",
+  );
 }

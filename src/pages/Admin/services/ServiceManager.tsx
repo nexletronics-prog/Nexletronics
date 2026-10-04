@@ -18,24 +18,14 @@ import {
 import {
   createService,
   deleteService,
+  subscribeToServices,
   updateService,
 } from "../../../services/service.service";
-
-import {
-  subscribeToCollection,
-  type RealtimeDocument,
-} from "../../../services/realtime.service";
 
 import type {
   Service,
 } from "../../../types/service";
 
-
-/*
- * ==========================================================
- * CATEGORIES
- * ==========================================================
- */
 
 const serviceCategories: string[] = [
   "3D Printing",
@@ -46,12 +36,6 @@ const serviceCategories: string[] = [
   "Consulting",
 ];
 
-
-/*
- * ==========================================================
- * SLUG
- * ==========================================================
- */
 
 function makeSlug(
   value: string,
@@ -71,152 +55,6 @@ function makeSlug(
 
 /*
  * ==========================================================
- * SERVICE NORMALIZER
- * ==========================================================
- */
-
-function normalizeService(
-  id: string,
-  data: Partial<Service>,
-): Service {
-  return {
-    id,
-
-    name:
-      data.name ??
-      "Unnamed service",
-
-    slug:
-      data.slug ??
-      "",
-
-    category:
-      data.category ??
-      "Technology Services",
-
-    shortDescription:
-      data.shortDescription ??
-      "",
-
-    description:
-      data.description ??
-      "",
-
-    price:
-      data.price,
-
-    priceLabel:
-      data.priceLabel,
-
-    image:
-      data.image,
-
-    featured:
-      data.featured ??
-      false,
-
-    active:
-      data.active ??
-      true,
-
-    createdAt:
-      data.createdAt,
-
-    updatedAt:
-      data.updatedAt,
-  };
-}
-
-
-/*
- * ==========================================================
- * TIMESTAMP
- * ==========================================================
- */
-
-function getTimeValue(
-  value: unknown,
-): number {
-  if (
-    value &&
-    typeof value ===
-      "object"
-  ) {
-
-    if (
-      "toMillis" in value &&
-      typeof (
-        value as {
-          toMillis?: unknown;
-        }
-      ).toMillis ===
-        "function"
-    ) {
-      return Number(
-        (
-          value as {
-            toMillis: () => number;
-          }
-        ).toMillis(),
-      );
-    }
-
-
-    if (
-      "seconds" in value
-    ) {
-      return (
-        Number(
-          (
-            value as {
-              seconds?: unknown;
-            }
-          ).seconds ??
-            0,
-        ) * 1000
-      );
-    }
-  }
-
-
-  if (
-    value instanceof Date
-  ) {
-    return value.getTime();
-  }
-
-
-  if (
-    typeof value ===
-    "string"
-  ) {
-    const parsed =
-      Date.parse(
-        value,
-      );
-
-    return Number.isNaN(
-      parsed,
-    )
-      ? 0
-      : parsed;
-  }
-
-
-  if (
-    typeof value ===
-    "number"
-  ) {
-    return value;
-  }
-
-
-  return 0;
-}
-
-
-/*
- * ==========================================================
  * SERVICE FORM
  * ==========================================================
  */
@@ -229,7 +67,6 @@ function ServiceForm({
 
   onClose: () => void;
 }) {
-
   const isEditing =
     service !== null;
 
@@ -237,7 +74,7 @@ function ServiceForm({
   const [
     name,
     setName,
-  ] = useState<string>(
+  ] = useState(
     service?.name ??
       "",
   );
@@ -246,7 +83,7 @@ function ServiceForm({
   const [
     category,
     setCategory,
-  ] = useState<string>(
+  ] = useState(
     service?.category ??
       serviceCategories[0],
   );
@@ -255,7 +92,7 @@ function ServiceForm({
   const [
     shortDescription,
     setShortDescription,
-  ] = useState<string>(
+  ] = useState(
     service?.shortDescription ??
       "",
   );
@@ -264,7 +101,7 @@ function ServiceForm({
   const [
     description,
     setDescription,
-  ] = useState<string>(
+  ] = useState(
     service?.description ??
       "",
   );
@@ -273,7 +110,7 @@ function ServiceForm({
   const [
     priceLabel,
     setPriceLabel,
-  ] = useState<string>(
+  ] = useState(
     service?.priceLabel ??
       "",
   );
@@ -282,9 +119,9 @@ function ServiceForm({
   const [
     price,
     setPrice,
-  ] = useState<string>(
+  ] = useState(
     service?.price !==
-    undefined
+      undefined
       ? String(
           service.price,
         )
@@ -295,7 +132,7 @@ function ServiceForm({
   const [
     image,
     setImage,
-  ] = useState<string>(
+  ] = useState(
     service?.image ??
       "",
   );
@@ -304,7 +141,7 @@ function ServiceForm({
   const [
     featured,
     setFeatured,
-  ] = useState<boolean>(
+  ] = useState(
     service?.featured ??
       false,
   );
@@ -313,7 +150,7 @@ function ServiceForm({
   const [
     active,
     setActive,
-  ] = useState<boolean>(
+  ] = useState(
     service?.active ??
       true,
   );
@@ -322,7 +159,7 @@ function ServiceForm({
   const [
     saving,
     setSaving,
-  ] = useState<boolean>(
+  ] = useState(
     false,
   );
 
@@ -330,27 +167,17 @@ function ServiceForm({
   const [
     error,
     setError,
-  ] = useState<string>(
+  ] = useState(
     "",
   );
 
 
-  /*
-   * ========================================================
-   * SUBMIT
-   * ========================================================
-   */
-
   async function handleSubmit(
     event: FormEvent<HTMLFormElement>,
   ) {
-
     event.preventDefault();
 
-
-    setError(
-      "",
-    );
+    setError("");
 
 
     const cleanName =
@@ -368,6 +195,10 @@ function ServiceForm({
     const cleanPriceLabel =
       priceLabel.trim();
 
+    const cleanCategory =
+      category.trim();
+
+
     const parsedPrice =
       price.trim() === ""
         ? undefined
@@ -377,7 +208,6 @@ function ServiceForm({
 
 
     if (!cleanName) {
-
       setError(
         "Service name is required.",
       );
@@ -387,7 +217,6 @@ function ServiceForm({
 
 
     if (!cleanShort) {
-
       setError(
         "Short description is required.",
       );
@@ -397,7 +226,6 @@ function ServiceForm({
 
 
     if (!cleanDescription) {
-
       setError(
         "Service description is required.",
       );
@@ -416,7 +244,6 @@ function ServiceForm({
         parsedPrice < 0
       )
     ) {
-
       setError(
         "Enter a valid starting price.",
       );
@@ -425,15 +252,25 @@ function ServiceForm({
     }
 
 
-    setSaving(
-      true,
-    );
+    if (!cleanCategory) {
+      setError(
+        "Service category is required.",
+      );
+
+      return;
+    }
+
+
+    setSaving(true);
 
 
     try {
-
-      const serviceData = {
-
+      const serviceData: Omit<
+        Service,
+        "id" |
+          "createdAt" |
+          "updatedAt"
+      > = {
         name:
           cleanName,
 
@@ -442,7 +279,8 @@ function ServiceForm({
             cleanName,
           ),
 
-        category,
+        category:
+          cleanCategory,
 
         shortDescription:
           cleanShort,
@@ -454,10 +292,12 @@ function ServiceForm({
           parsedPrice,
 
         priceLabel:
-          cleanPriceLabel,
+          cleanPriceLabel ||
+          undefined,
 
         image:
-          cleanImage,
+          cleanImage ||
+          undefined,
 
         featured,
 
@@ -465,17 +305,11 @@ function ServiceForm({
       };
 
 
-      if (
-        service ===
-        null
-      ) {
-
+      if (service === null) {
         await createService(
           serviceData,
         );
-
       } else {
-
         await updateService(
           service.id,
           serviceData,
@@ -483,17 +317,10 @@ function ServiceForm({
       }
 
 
-      /*
-       * Do not reload the list here.
-       *
-       * Firestore onSnapshot() will deliver the create/update
-       * event automatically.
-       */
-
       onClose();
-
-    } catch (err) {
-
+    } catch (
+      err
+    ) {
       console.error(
         "Failed to save service:",
         err,
@@ -505,12 +332,8 @@ function ServiceForm({
           ? err.message
           : "Unable to save service.",
       );
-
     } finally {
-
-      setSaving(
-        false,
-      );
+      setSaving(false);
     }
   }
 
@@ -526,26 +349,20 @@ function ServiceForm({
           : "Add service"
       }
     >
-
       <div className="max-h-[92vh] w-full max-w-2xl overflow-y-auto rounded-3xl bg-white shadow-2xl">
-
-        {/* HEADER */}
 
         <div className="flex items-center justify-between border-b border-neutral-200 px-6 py-5">
 
           <div>
-
             <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-[#D4AF37]">
               Service Management
             </p>
-
 
             <h2 className="mt-1 text-2xl font-black text-neutral-950">
               {isEditing
                 ? "Edit Service"
                 : "Add Service"}
             </h2>
-
           </div>
 
 
@@ -557,11 +374,7 @@ function ServiceForm({
             className="flex h-10 w-10 items-center justify-center rounded-full border border-neutral-200 text-neutral-500 transition hover:border-red-200 hover:bg-red-50 hover:text-red-600"
             aria-label="Close"
           >
-
-            <X
-              size={18}
-            />
-
+            <X size={18} />
           </button>
 
         </div>
@@ -575,23 +388,22 @@ function ServiceForm({
         >
 
           {error && (
-            <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+            <div
+              role="alert"
+              className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700"
+            >
               {error}
             </div>
           )}
 
 
-          {/* NAME */}
-
           <div>
-
             <label
               htmlFor="service-name"
               className="mb-2 block text-sm font-bold text-neutral-800"
             >
               Service Name
             </label>
-
 
             <input
               id="service-name"
@@ -604,28 +416,22 @@ function ServiceForm({
                 event,
               ) =>
                 setName(
-                  event.target
-                    .value,
+                  event.target.value,
                 )
               }
               placeholder="Custom 3D Printing"
               className="w-full rounded-2xl border border-neutral-200 px-5 py-3.5 text-sm outline-none focus:border-[#D4AF37] focus:ring-4 focus:ring-[#D4AF37]/10"
             />
-
           </div>
 
 
-          {/* CATEGORY */}
-
           <div>
-
             <label
               htmlFor="service-category"
               className="mb-2 block text-sm font-bold text-neutral-800"
             >
               Category
             </label>
-
 
             <select
               id="service-category"
@@ -636,18 +442,15 @@ function ServiceForm({
                 event,
               ) =>
                 setCategory(
-                  event.target
-                    .value,
+                  event.target.value,
                 )
               }
               className="w-full rounded-2xl border border-neutral-200 px-5 py-3.5 text-sm outline-none focus:border-[#D4AF37]"
             >
-
               {serviceCategories.map(
                 (
                   item,
                 ) => (
-
                   <option
                     key={
                       item
@@ -656,30 +459,21 @@ function ServiceForm({
                       item
                     }
                   >
-                    {
-                      item
-                    }
+                    {item}
                   </option>
-
                 ),
               )}
-
             </select>
-
           </div>
 
 
-          {/* SHORT DESCRIPTION */}
-
           <div>
-
             <label
               htmlFor="service-short"
               className="mb-2 block text-sm font-bold text-neutral-800"
             >
               Short Description
             </label>
-
 
             <input
               id="service-short"
@@ -692,28 +486,22 @@ function ServiceForm({
                 event,
               ) =>
                 setShortDescription(
-                  event.target
-                    .value,
+                  event.target.value,
                 )
               }
               placeholder="Professional custom 3D printing for prototypes and projects."
               className="w-full rounded-2xl border border-neutral-200 px-5 py-3.5 text-sm outline-none focus:border-[#D4AF37] focus:ring-4 focus:ring-[#D4AF37]/10"
             />
-
           </div>
 
 
-          {/* DESCRIPTION */}
-
           <div>
-
             <label
               htmlFor="service-description"
               className="mb-2 block text-sm font-bold text-neutral-800"
             >
               Full Description
             </label>
-
 
             <textarea
               id="service-description"
@@ -726,30 +514,24 @@ function ServiceForm({
                 event,
               ) =>
                 setDescription(
-                  event.target
-                    .value,
+                  event.target.value,
                 )
               }
               placeholder="Explain the service, process, deliverables and ideal use cases."
               className="w-full resize-none rounded-2xl border border-neutral-200 px-5 py-3.5 text-sm leading-6 outline-none focus:border-[#D4AF37] focus:ring-4 focus:ring-[#D4AF37]/10"
             />
-
           </div>
 
-
-          {/* PRICE */}
 
           <div className="grid gap-5 sm:grid-cols-2">
 
             <div>
-
               <label
                 htmlFor="service-price"
                 className="mb-2 block text-sm font-bold text-neutral-800"
               >
                 Starting Price
               </label>
-
 
               <input
                 id="service-price"
@@ -763,26 +545,22 @@ function ServiceForm({
                   event,
                 ) =>
                   setPrice(
-                    event.target
-                      .value,
+                    event.target.value,
                   )
                 }
                 placeholder="499"
                 className="w-full rounded-2xl border border-neutral-200 px-5 py-3.5 text-sm outline-none focus:border-[#D4AF37]"
               />
-
             </div>
 
 
             <div>
-
               <label
                 htmlFor="service-price-label"
                 className="mb-2 block text-sm font-bold text-neutral-800"
               >
                 Price Label
               </label>
-
 
               <input
                 id="service-price-label"
@@ -794,30 +572,24 @@ function ServiceForm({
                   event,
                 ) =>
                   setPriceLabel(
-                    event.target
-                      .value,
+                    event.target.value,
                   )
                 }
                 placeholder="Starting from"
                 className="w-full rounded-2xl border border-neutral-200 px-5 py-3.5 text-sm outline-none focus:border-[#D4AF37]"
               />
-
             </div>
 
           </div>
 
 
-          {/* IMAGE */}
-
           <div>
-
             <label
               htmlFor="service-image"
               className="mb-2 block text-sm font-bold text-neutral-800"
             >
               Image URL
             </label>
-
 
             <input
               id="service-image"
@@ -829,18 +601,14 @@ function ServiceForm({
                 event,
               ) =>
                 setImage(
-                  event.target
-                    .value,
+                  event.target.value,
                 )
               }
               placeholder="https://..."
               className="w-full rounded-2xl border border-neutral-200 px-5 py-3.5 text-sm outline-none focus:border-[#D4AF37]"
             />
-
           </div>
 
-
-          {/* SETTINGS */}
 
           <div className="grid gap-4 sm:grid-cols-2">
 
@@ -855,25 +623,20 @@ function ServiceForm({
                   event,
                 ) =>
                   setActive(
-                    event.target
-                      .checked,
+                    event.target.checked,
                   )
                 }
                 className="mt-1 h-5 w-5 accent-[#D4AF37]"
               />
 
-
               <div>
-
                 <p className="text-sm font-bold">
                   Active
                 </p>
 
-
                 <p className="mt-1 text-xs text-neutral-500">
                   Show this service publicly.
                 </p>
-
               </div>
 
             </label>
@@ -890,33 +653,26 @@ function ServiceForm({
                   event,
                 ) =>
                   setFeatured(
-                    event.target
-                      .checked,
+                    event.target.checked,
                   )
                 }
                 className="mt-1 h-5 w-5 accent-[#D4AF37]"
               />
 
-
               <div>
-
                 <p className="text-sm font-bold">
                   Featured
                 </p>
 
-
                 <p className="mt-1 text-xs text-neutral-500">
                   Highlight this service.
                 </p>
-
               </div>
 
             </label>
 
           </div>
 
-
-          {/* BUTTONS */}
 
           <div className="flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
 
@@ -929,7 +685,6 @@ function ServiceForm({
             >
               Cancel
             </button>
-
 
             <button
               type="submit"
@@ -950,7 +705,6 @@ function ServiceForm({
         </form>
 
       </div>
-
     </div>
   );
 }
@@ -963,7 +717,6 @@ function ServiceForm({
  */
 
 export default function ServiceManager() {
-
   const [
     services,
     setServices,
@@ -975,7 +728,7 @@ export default function ServiceManager() {
   const [
     loading,
     setLoading,
-  ] = useState<boolean>(
+  ] = useState(
     true,
   );
 
@@ -983,7 +736,7 @@ export default function ServiceManager() {
   const [
     error,
     setError,
-  ] = useState<string>(
+  ] = useState(
     "",
   );
 
@@ -991,7 +744,7 @@ export default function ServiceManager() {
   const [
     search,
     setSearch,
-  ] = useState<string>(
+  ] = useState(
     "",
   );
 
@@ -1007,23 +760,15 @@ export default function ServiceManager() {
   const [
     formOpen,
     setFormOpen,
-  ] = useState<boolean>(
+  ] = useState(
     false,
   );
 
 
-  /*
-   * ========================================================
-   * REALTIME SERVICES
-   * ========================================================
-   */
-
   useEffect(() => {
-
     setLoading(
       true,
     );
-
 
     setError(
       "",
@@ -1031,58 +776,19 @@ export default function ServiceManager() {
 
 
     const unsubscribe =
-      subscribeToCollection<
-        Partial<Service>
-      >(
-        "services",
-
+      subscribeToServices(
         (
-          items: RealtimeDocument<
-            Partial<Service>
-          >[],
+          nextServices,
         ) => {
-
-          const nextServices =
-            items.map(
-              (
-                item,
-              ) =>
-                normalizeService(
-                  item.id,
-                  item.data,
-                ),
-            );
-
-
-          nextServices.sort(
-            (
-              first,
-              second,
-            ) =>
-              getTimeValue(
-                second.createdAt,
-              ) -
-              getTimeValue(
-                first.createdAt,
-              ),
-          );
-
-
           setServices(
             nextServices,
           );
 
 
-          /*
-           * Keep an open edit modal synchronized if the
-           * same service changes from another admin tab.
-           */
-
           setSelectedService(
             (
               current,
             ) => {
-
               if (!current) {
                 return current;
               }
@@ -1112,49 +818,39 @@ export default function ServiceManager() {
           );
         },
 
-        {
-          onError: (
+
+        (
+          listenerError,
+        ) => {
+          console.error(
+            "Supabase services listener failed:",
             listenerError,
-          ) => {
-
-            console.error(
-              "Realtime services listener failed:",
-              listenerError,
-            );
+          );
 
 
-            setError(
-              "Unable to connect to the realtime services database.",
-            );
+          setError(
+            listenerError instanceof Error
+              ? listenerError.message
+              : "Unable to connect to the realtime services database.",
+          );
 
 
-            setLoading(
-              false,
-            );
-          },
+          setLoading(
+            false,
+          );
         },
       );
 
 
     return () => {
-
       unsubscribe();
-
     };
-
   }, []);
 
-
-  /*
-   * ========================================================
-   * FILTER
-   * ========================================================
-   */
 
   const filteredServices =
     useMemo(
       () => {
-
         const query =
           search
             .trim()
@@ -1165,28 +861,24 @@ export default function ServiceManager() {
           (
             service,
           ) =>
-
-            query === "" ||
-
+            query ===
+              "" ||
             service.name
               .toLowerCase()
               .includes(
                 query,
               ) ||
-
             service.category
               .toLowerCase()
               .includes(
                 query,
               ) ||
-
             service.description
               .toLowerCase()
               .includes(
                 query,
               ),
         );
-
       },
       [
         services,
@@ -1195,16 +887,9 @@ export default function ServiceManager() {
     );
 
 
-  /*
-   * ========================================================
-   * DELETE
-   * ========================================================
-   */
-
   async function handleDelete(
     service: Service,
   ) {
-
     const confirmed =
       window.confirm(
         `Delete "${service.name}"?`,
@@ -1217,23 +902,17 @@ export default function ServiceManager() {
 
 
     try {
-
       setError(
         "",
       );
 
 
-      /*
-       * Do not manually remove the service from React state.
-       * Firestore's realtime delete event does that.
-       */
-
       await deleteService(
         service.id,
       );
-
-    } catch (err) {
-
+    } catch (
+      err
+    ) {
       console.error(
         "Failed to delete service:",
         err,
@@ -1249,14 +928,7 @@ export default function ServiceManager() {
   }
 
 
-  /*
-   * ========================================================
-   * LOADING
-   * ========================================================
-   */
-
   if (loading) {
-
     return (
       <div className="space-y-6">
 
@@ -1271,16 +943,8 @@ export default function ServiceManager() {
   }
 
 
-  /*
-   * ========================================================
-   * PAGE
-   * ========================================================
-   */
-
   return (
     <div className="space-y-8">
-
-      {/* HEADER */}
 
       <div className="flex flex-col gap-5 sm:flex-row sm:items-end sm:justify-between">
 
@@ -1290,11 +954,9 @@ export default function ServiceManager() {
             Service Management
           </p>
 
-
           <h1 className="mt-2 text-4xl font-black tracking-tight text-neutral-950">
             Services
           </h1>
-
 
           <p className="mt-2 text-sm text-neutral-500">
             Manage 3D printing, custom projects, software and other services.
@@ -1317,7 +979,6 @@ export default function ServiceManager() {
           <button
             type="button"
             onClick={() => {
-
               setSelectedService(
                 null,
               );
@@ -1325,7 +986,6 @@ export default function ServiceManager() {
               setFormOpen(
                 true,
               );
-
             }}
             className="inline-flex items-center justify-center gap-2 rounded-full bg-[#D4AF37] px-6 py-3.5 text-sm font-black text-white shadow-lg shadow-[#D4AF37]/20"
           >
@@ -1343,8 +1003,6 @@ export default function ServiceManager() {
       </div>
 
 
-      {/* ERROR */}
-
       {error && (
         <div
           role="alert"
@@ -1354,8 +1012,6 @@ export default function ServiceManager() {
         </div>
       )}
 
-
-      {/* SEARCH */}
 
       <section className="rounded-3xl border border-neutral-200 bg-white p-5 shadow-sm">
 
@@ -1405,8 +1061,6 @@ export default function ServiceManager() {
       </section>
 
 
-      {/* EMPTY */}
-
       {filteredServices.length ===
       0 ? (
 
@@ -1434,7 +1088,6 @@ export default function ServiceManager() {
           <button
             type="button"
             onClick={() => {
-
               setSelectedService(
                 null,
               );
@@ -1442,7 +1095,6 @@ export default function ServiceManager() {
               setFormOpen(
                 true,
               );
-
             }}
             className="mt-6 rounded-full bg-neutral-950 px-6 py-3 text-sm font-bold text-white hover:bg-[#D4AF37]"
           >
@@ -1452,10 +1104,6 @@ export default function ServiceManager() {
         </section>
 
       ) : (
-
-        /* ==================================================
-           GRID
-        =================================================== */
 
         <section className="grid gap-5 md:grid-cols-2 xl:grid-cols-3">
 
@@ -1470,8 +1118,6 @@ export default function ServiceManager() {
                 }
                 className="overflow-hidden rounded-3xl border border-neutral-200 bg-white shadow-sm transition hover:-translate-y-1 hover:shadow-xl"
               >
-
-                {/* IMAGE */}
 
                 <div className="flex h-44 items-center justify-center bg-[#faf8f0]">
 
@@ -1587,7 +1233,6 @@ export default function ServiceManager() {
                     <button
                       type="button"
                       onClick={() => {
-
                         setSelectedService(
                           service,
                         );
@@ -1595,7 +1240,6 @@ export default function ServiceManager() {
                         setFormOpen(
                           true,
                         );
-
                       }}
                       className="flex flex-1 items-center justify-center gap-2 rounded-xl border border-neutral-200 py-2.5 text-xs font-bold text-neutral-700 hover:border-[#D4AF37] hover:text-[#D4AF37]"
                     >
@@ -1655,15 +1299,12 @@ export default function ServiceManager() {
       )}
 
 
-      {/* FORM */}
-
       {formOpen && (
         <ServiceForm
           service={
             selectedService
           }
           onClose={() => {
-
             setFormOpen(
               false,
             );
@@ -1671,7 +1312,6 @@ export default function ServiceManager() {
             setSelectedService(
               null,
             );
-
           }}
         />
       )}

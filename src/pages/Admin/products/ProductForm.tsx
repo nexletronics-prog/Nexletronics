@@ -1204,9 +1204,11 @@ export default function ProductForm() {
 
 
     /*
-     * New product gets a temporary stable folder ID.
+     * New product gets a stable ID which is used for both
+     * the Supabase product record and the Supabase Storage
+     * folder.
      *
-     * Existing product uses its Firestore ID.
+     * Existing product keeps its current ID.
      */
 
     const storageProductId =
@@ -1266,7 +1268,7 @@ export default function ProductForm() {
 
         /*
          * New image:
-         * upload to Supabase.
+         * upload to Supabase Storage.
          */
 
         const uploadedUrl =
@@ -1436,7 +1438,7 @@ export default function ProductForm() {
 
       /*
        * ======================================================
-       * FIRESTORE
+       * SUPABASE
        * ======================================================
        */
 
@@ -1457,8 +1459,20 @@ export default function ProductForm() {
 
       } else {
 
+        /*
+         * IMPORTANT:
+         * Use the same storageProductId generated above.
+         *
+         * This keeps:
+         *
+         * Supabase product ID
+         *        =
+         * Supabase Storage folder ID
+         */
+
         await createProduct(
           product,
+          storageProductId,
         );
 
 

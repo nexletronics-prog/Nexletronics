@@ -1,247 +1,291 @@
-import {
-  doc,
-  getDoc,
-  onSnapshot,
-  serverTimestamp,
-  setDoc,
-  type Unsubscribe,
-} from "firebase/firestore";
+import { supabase } from "../lib/supabase";
+import type { GlobalWebsiteSettings } from "../types/siteSettings";
 
-import {
-  db,
-} from "../firebase/config";
-
-import type {
-  GlobalWebsiteSettings,
-} from "../types/siteSettings";
-
+const GLOBAL_TABLE = "global_website_settings";
+const GLOBAL_ID = "global";
 
 /*
- * ==========================================================
- * DEFAULT GLOBAL SETTINGS
- * ==========================================================
+ * Each realtime subscription gets its own unique channel name.
+ * This prevents React development remounts / Strict Mode from
+ * reusing a channel that has already been subscribed.
  */
+let channelCounter = 0;
 
-export const defaultGlobalWebsiteSettings:
-  GlobalWebsiteSettings = {
 
-  companyName:
-    "Nexletronics",
-
-  companyEmail:
-    "info@nexletronics.com",
-
-  companyPhone:
-    "",
-
-  companyAddress:
-    "",
-
+export const defaultGlobalWebsiteSettings: GlobalWebsiteSettings = {
+  companyName: "Nexletronics",
+  companyEmail: "info@nexletronics.com",
+  companyPhone: "",
+  companyAddress: "",
   footerDescription:
     "Technology, electronics and innovation solutions built for real-world applications.",
-
-  copyrightText:
-    "Nexletronics. All rights reserved.",
-
-  instagramUrl:
-    "",
-
-  facebookUrl:
-    "",
-
-  youtubeUrl:
-    "",
-
-  linkedinUrl:
-    "",
-
-  currency:
-    "INR",
-
-  maintenanceMode:
-    false,
-
-  emailLogin:
-    true,
-
-  googleLogin:
-    true,
-
-  checkoutEnabled:
-    true,
+  copyrightText: "Nexletronics. All rights reserved.",
+  instagramUrl: "",
+  facebookUrl: "",
+  youtubeUrl: "",
+  linkedinUrl: "",
+  currency: "INR",
+  maintenanceMode: false,
+  emailLogin: true,
+  googleLogin: true,
+  checkoutEnabled: true,
 };
 
 
-/*
- * ==========================================================
- * NORMALIZE
- * ==========================================================
- */
+interface GlobalRow {
+  id: string;
+  company_name: string | null;
+  company_email: string | null;
+  company_phone: string | null;
+  company_address: string | null;
+  footer_description: string | null;
+  copyright_text: string | null;
+  instagram_url: string | null;
+  facebook_url: string | null;
+  youtube_url: string | null;
+  linkedin_url: string | null;
+  currency: string | null;
+  maintenance_mode: boolean | null;
+  email_login: boolean | null;
+  google_login: boolean | null;
+  checkout_enabled: boolean | null;
+  updated_at: string | null;
+}
 
-function normalizeGlobalWebsiteSettings(
-  data?: Partial<GlobalWebsiteSettings>,
+
+const GLOBAL_COLUMNS = `
+  id,
+  company_name,
+  company_email,
+  company_phone,
+  company_address,
+  footer_description,
+  copyright_text,
+  instagram_url,
+  facebook_url,
+  youtube_url,
+  linkedin_url,
+  currency,
+  maintenance_mode,
+  email_login,
+  google_login,
+  checkout_enabled,
+  updated_at
+`;
+
+
+function clean(
+  value: unknown,
+  fallback: string,
+): string {
+  return typeof value === "string"
+    ? value
+    : fallback;
+}
+
+
+function normalize(
+  row?: Partial<GlobalRow> | null,
 ): GlobalWebsiteSettings {
-
-  const value =
-    data ?? {};
-
-
   return {
-
     ...defaultGlobalWebsiteSettings,
 
+    companyName: clean(
+      row?.company_name,
+      defaultGlobalWebsiteSettings.companyName,
+    ),
 
-    companyName:
-      typeof value.companyName === "string"
-        ? value.companyName
-        : defaultGlobalWebsiteSettings.companyName,
+    companyEmail: clean(
+      row?.company_email,
+      defaultGlobalWebsiteSettings.companyEmail,
+    ),
 
+    companyPhone: clean(
+      row?.company_phone,
+      defaultGlobalWebsiteSettings.companyPhone,
+    ),
 
-    companyEmail:
-      typeof value.companyEmail === "string"
-        ? value.companyEmail
-        : defaultGlobalWebsiteSettings.companyEmail,
+    companyAddress: clean(
+      row?.company_address,
+      defaultGlobalWebsiteSettings.companyAddress,
+    ),
 
+    footerDescription: clean(
+      row?.footer_description,
+      defaultGlobalWebsiteSettings.footerDescription,
+    ),
 
-    companyPhone:
-      typeof value.companyPhone === "string"
-        ? value.companyPhone
-        : defaultGlobalWebsiteSettings.companyPhone,
+    copyrightText: clean(
+      row?.copyright_text,
+      defaultGlobalWebsiteSettings.copyrightText,
+    ),
 
+    instagramUrl: clean(
+      row?.instagram_url,
+      defaultGlobalWebsiteSettings.instagramUrl,
+    ),
 
-    companyAddress:
-      typeof value.companyAddress === "string"
-        ? value.companyAddress
-        : defaultGlobalWebsiteSettings.companyAddress,
+    facebookUrl: clean(
+      row?.facebook_url,
+      defaultGlobalWebsiteSettings.facebookUrl,
+    ),
 
+    youtubeUrl: clean(
+      row?.youtube_url,
+      defaultGlobalWebsiteSettings.youtubeUrl,
+    ),
 
-    footerDescription:
-      typeof value.footerDescription === "string"
-        ? value.footerDescription
-        : defaultGlobalWebsiteSettings.footerDescription,
+    linkedinUrl: clean(
+      row?.linkedin_url,
+      defaultGlobalWebsiteSettings.linkedinUrl,
+    ),
 
-
-    copyrightText:
-      typeof value.copyrightText === "string"
-        ? value.copyrightText
-        : defaultGlobalWebsiteSettings.copyrightText,
-
-
-    instagramUrl:
-      typeof value.instagramUrl === "string"
-        ? value.instagramUrl
-        : defaultGlobalWebsiteSettings.instagramUrl,
-
-
-    facebookUrl:
-      typeof value.facebookUrl === "string"
-        ? value.facebookUrl
-        : defaultGlobalWebsiteSettings.facebookUrl,
-
-
-    youtubeUrl:
-      typeof value.youtubeUrl === "string"
-        ? value.youtubeUrl
-        : defaultGlobalWebsiteSettings.youtubeUrl,
-
-
-    linkedinUrl:
-      typeof value.linkedinUrl === "string"
-        ? value.linkedinUrl
-        : defaultGlobalWebsiteSettings.linkedinUrl,
-
-
-    currency:
-      typeof value.currency === "string"
-        ? value.currency
-        : defaultGlobalWebsiteSettings.currency,
-
+    currency: clean(
+      row?.currency,
+      defaultGlobalWebsiteSettings.currency,
+    ),
 
     maintenanceMode:
-      typeof value.maintenanceMode === "boolean"
-        ? value.maintenanceMode
+      typeof row?.maintenance_mode ===
+      "boolean"
+        ? row.maintenance_mode
         : defaultGlobalWebsiteSettings.maintenanceMode,
 
-
     emailLogin:
-      typeof value.emailLogin === "boolean"
-        ? value.emailLogin
+      typeof row?.email_login ===
+      "boolean"
+        ? row.email_login
         : defaultGlobalWebsiteSettings.emailLogin,
 
-
     googleLogin:
-      typeof value.googleLogin === "boolean"
-        ? value.googleLogin
+      typeof row?.google_login ===
+      "boolean"
+        ? row.google_login
         : defaultGlobalWebsiteSettings.googleLogin,
 
-
     checkoutEnabled:
-      typeof value.checkoutEnabled === "boolean"
-        ? value.checkoutEnabled
+      typeof row?.checkout_enabled ===
+      "boolean"
+        ? row.checkout_enabled
         : defaultGlobalWebsiteSettings.checkoutEnabled,
 
-
     updatedAt:
-      value.updatedAt,
+      row?.updated_at ??
+      undefined,
+  };
+}
+
+
+function toRow(
+  settings: GlobalWebsiteSettings,
+) {
+  return {
+    id: GLOBAL_ID,
+
+    company_name:
+      settings.companyName.trim(),
+
+    company_email:
+      settings.companyEmail.trim(),
+
+    company_phone:
+      settings.companyPhone.trim(),
+
+    company_address:
+      settings.companyAddress.trim(),
+
+    footer_description:
+      settings.footerDescription.trim(),
+
+    copyright_text:
+      settings.copyrightText.trim(),
+
+    instagram_url:
+      settings.instagramUrl.trim(),
+
+    facebook_url:
+      settings.facebookUrl.trim(),
+
+    youtube_url:
+      settings.youtubeUrl.trim(),
+
+    linkedin_url:
+      settings.linkedinUrl.trim(),
+
+    currency:
+      settings.currency.trim() ||
+      "INR",
+
+    maintenance_mode:
+      Boolean(
+        settings.maintenanceMode,
+      ),
+
+    email_login:
+      Boolean(
+        settings.emailLogin,
+      ),
+
+    google_login:
+      Boolean(
+        settings.googleLogin,
+      ),
+
+    checkout_enabled:
+      Boolean(
+        settings.checkoutEnabled,
+      ),
   };
 }
 
 
 /*
  * ==========================================================
- * GET GLOBAL SETTINGS
+ * GET SETTINGS
  * ==========================================================
  */
 
-export async function getGlobalWebsiteSettings():
-  Promise<GlobalWebsiteSettings> {
-
-  try {
-
-    const reference =
-      doc(
-        db,
-        "siteSettings",
-        "global",
-      );
-
-
-    const snapshot =
-      await getDoc(
-        reference,
-      );
-
-
-    if (!snapshot.exists()) {
-
-      return {
-        ...defaultGlobalWebsiteSettings,
-      };
-    }
+export async function getGlobalWebsiteSettings(): Promise<GlobalWebsiteSettings> {
+  const {
+    data,
+    error,
+  } = await supabase
+    .from(
+      GLOBAL_TABLE,
+    )
+    .select(
+      GLOBAL_COLUMNS,
+    )
+    .eq(
+      "id",
+      GLOBAL_ID,
+    )
+    .maybeSingle();
 
 
-    return normalizeGlobalWebsiteSettings(
-      snapshot.data() as Partial<GlobalWebsiteSettings>,
-    );
-
-  } catch (error) {
-
+  if (
+    error
+  ) {
     console.error(
       "Failed to load global website settings:",
       error,
     );
 
-
     return {
       ...defaultGlobalWebsiteSettings,
     };
   }
+
+
+  return normalize(
+    (data ?? null) as GlobalRow | null,
+  );
 }
 
 
 /*
  * ==========================================================
- * REALTIME GLOBAL SETTINGS
+ * REALTIME SUBSCRIPTION
  * ==========================================================
  */
 
@@ -253,24 +297,118 @@ export function subscribeToGlobalWebsiteSettings(
   onError?: (
     error: Error,
   ) => void,
-): Unsubscribe {
+): () => void {
+  let active = true;
 
-  const reference =
-    doc(
-      db,
-      "siteSettings",
-      "global",
+
+  /*
+   * --------------------------------------------------------
+   * INITIAL DATABASE LOAD
+   * --------------------------------------------------------
+   */
+
+  void getGlobalWebsiteSettings()
+    .then(
+      (
+        settings,
+      ) => {
+        if (
+          active
+        ) {
+          onChange(
+            settings,
+          );
+        }
+      },
+    )
+    .catch(
+      (
+        error: unknown,
+      ) => {
+        if (
+          !active
+        ) {
+          return;
+        }
+
+
+        const normalized =
+          error instanceof Error
+            ? error
+            : new Error(
+                String(
+                  error,
+                ),
+              );
+
+
+        onError?.(
+          normalized,
+        );
+      },
     );
 
 
-  return onSnapshot(
+  /*
+   * --------------------------------------------------------
+   * UNIQUE CHANNEL
+   * --------------------------------------------------------
+   *
+   * Never reuse the same channel name for separate React
+   * subscriptions.
+   */
 
-    reference,
+  channelCounter += 1;
 
-    (snapshot) => {
 
-      if (!snapshot.exists()) {
+  const channelName =
+    `global-website-settings-${GLOBAL_ID}-${channelCounter}`;
 
+
+  const channel =
+    supabase.channel(
+      channelName,
+    );
+
+
+  /*
+   * --------------------------------------------------------
+   * REGISTER REALTIME CALLBACK FIRST
+   * --------------------------------------------------------
+   */
+
+  channel.on(
+    "postgres_changes",
+
+    {
+      event: "*",
+
+      schema: "public",
+
+      table: GLOBAL_TABLE,
+
+      filter:
+        `id=eq.${GLOBAL_ID}`,
+    },
+
+    (
+      payload,
+    ) => {
+      if (
+        !active
+      ) {
+        return;
+      }
+
+
+      /*
+       * DELETE
+       */
+
+      if (
+        payload.eventType ===
+        "DELETE"
+      ) {
         onChange({
           ...defaultGlobalWebsiteSettings,
         });
@@ -279,110 +417,111 @@ export function subscribeToGlobalWebsiteSettings(
       }
 
 
-      const settings =
-        normalizeGlobalWebsiteSettings(
-          snapshot.data() as Partial<GlobalWebsiteSettings>,
-        );
-
+      /*
+       * INSERT / UPDATE
+       */
 
       onChange(
-        settings,
-      );
-    },
-
-    (error) => {
-
-      console.error(
-        "Global settings realtime listener failed:",
-        error,
-      );
-
-
-      onError?.(
-        error,
+        normalize(
+          payload.new as GlobalRow,
+        ),
       );
     },
   );
+
+
+  /*
+   * --------------------------------------------------------
+   * SUBSCRIBE ONLY AFTER .on()
+   * --------------------------------------------------------
+   */
+
+  void channel.subscribe(
+    (
+      status,
+    ) => {
+      if (
+        !active
+      ) {
+        return;
+      }
+
+
+      if (
+        status ===
+          "CHANNEL_ERROR" ||
+        status ===
+          "TIMED_OUT"
+      ) {
+        onError?.(
+          new Error(
+            `Global settings realtime channel: ${status}.`,
+          ),
+        );
+      }
+    },
+  );
+
+
+  /*
+   * --------------------------------------------------------
+   * CLEANUP
+   * --------------------------------------------------------
+   */
+
+  return () => {
+    active = false;
+
+
+    void supabase.removeChannel(
+      channel,
+    );
+  };
 }
 
 
 /*
  * ==========================================================
- * SAVE GLOBAL SETTINGS
+ * SAVE SETTINGS
  * ==========================================================
  */
 
 export async function saveGlobalWebsiteSettings(
   settings: GlobalWebsiteSettings,
 ): Promise<void> {
+  if (
+    !settings
+  ) {
+    throw new Error(
+      "Global website settings are required.",
+    );
+  }
 
-  const normalized =
-    normalizeGlobalWebsiteSettings(
-      settings,
+
+  const {
+    error,
+  } =
+    await supabase
+      .from(
+        GLOBAL_TABLE,
+      )
+      .upsert(
+        toRow(
+          settings,
+        ),
+      );
+
+
+  if (
+    error
+  ) {
+    console.error(
+      "Failed to save global website settings:",
+      error,
     );
 
-
-  await setDoc(
-
-    doc(
-      db,
-      "siteSettings",
-      "global",
-    ),
-
-    {
-
-      companyName:
-        normalized.companyName.trim(),
-
-      companyEmail:
-        normalized.companyEmail.trim(),
-
-      companyPhone:
-        normalized.companyPhone.trim(),
-
-      companyAddress:
-        normalized.companyAddress.trim(),
-
-      footerDescription:
-        normalized.footerDescription.trim(),
-
-      copyrightText:
-        normalized.copyrightText.trim(),
-
-      instagramUrl:
-        normalized.instagramUrl.trim(),
-
-      facebookUrl:
-        normalized.facebookUrl.trim(),
-
-      youtubeUrl:
-        normalized.youtubeUrl.trim(),
-
-      linkedinUrl:
-        normalized.linkedinUrl.trim(),
-
-      currency:
-        normalized.currency.trim(),
-
-      maintenanceMode:
-        normalized.maintenanceMode,
-
-      emailLogin:
-        normalized.emailLogin,
-
-      googleLogin:
-        normalized.googleLogin,
-
-      checkoutEnabled:
-        normalized.checkoutEnabled,
-
-      updatedAt:
-        serverTimestamp(),
-    },
-
-    {
-      merge: true,
-    },
-  );
+    throw new Error(
+      error.message,
+    );
+  }
 }

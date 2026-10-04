@@ -19,15 +19,8 @@ import {
 } from "react-router-dom";
 
 import {
-  doc,
-  onSnapshot,
-} from "firebase/firestore";
-
-import {
-  db,
-} from "../../firebase/config";
-
-import {
+  getCustomPortfolioItem,
+  subscribeCustomPortfolio,
   subscribeCustomShowcaseSettings,
 } from "../../services/customShowcase.service";
 
@@ -39,142 +32,6 @@ import type {
   CustomPortfolioCategory,
   CustomPortfolioItem,
 } from "../../types/customProject";
-
-
-/*
- * ==========================================================
- * NORMALIZE PORTFOLIO
- * ==========================================================
- */
-
-function normalizePortfolioItem(
-  id:
-    string,
-
-  data:
-    Record<
-      string,
-      unknown
-    >,
-): CustomPortfolioItem {
-
-  const category:
-    CustomPortfolioCategory =
-    data.category ===
-      "devices"
-      ? "devices"
-      : "website";
-
-
-  const gallery =
-    Array.isArray(
-      data.gallery,
-    )
-      ? data.gallery.filter(
-          (
-            image,
-          ): image is string =>
-            typeof image ===
-              "string" &&
-            image.trim().length >
-              0,
-        )
-      : [];
-
-
-  const technologies =
-    Array.isArray(
-      data.technologies,
-    )
-      ? data.technologies.filter(
-          (
-            technology,
-          ): technology is string =>
-            typeof technology ===
-              "string" &&
-            technology.trim().length >
-              0,
-        )
-      : [];
-
-
-  return {
-
-    id,
-
-    title:
-      typeof data.title ===
-      "string"
-        ? data.title
-        : "Untitled project",
-
-    slug:
-      typeof data.slug ===
-      "string"
-        ? data.slug
-        : id,
-
-    category,
-
-    shortDescription:
-      typeof data.shortDescription ===
-      "string"
-        ? data.shortDescription
-        : "",
-
-    description:
-      typeof data.description ===
-      "string"
-        ? data.description
-        : "",
-
-    coverImage:
-      typeof data.coverImage ===
-      "string"
-        ? data.coverImage
-        : "",
-
-    gallery,
-
-    technologies,
-
-    clientIndustry:
-      typeof data.clientIndustry ===
-      "string"
-        ? data.clientIndustry
-        : undefined,
-
-    liveUrl:
-      typeof data.liveUrl ===
-      "string"
-        ? data.liveUrl
-        : undefined,
-
-    featured:
-      data.featured ===
-      true,
-
-    published:
-      data.published !==
-      false,
-
-    sortOrder:
-      typeof data.sortOrder ===
-        "number" &&
-      Number.isFinite(
-        data.sortOrder,
-      )
-        ? data.sortOrder
-        : 0,
-
-    createdAt:
-      data.createdAt,
-
-    updatedAt:
-      data.updatedAt,
-
-  };
-}
 
 
 /*
@@ -315,6 +172,11 @@ export default function CustomPortfolioDetails() {
    * ========================================================
    * REALTIME PROJECT
    * ========================================================
+   *
+   * Portfolio data is now loaded from Supabase. The service
+   * returns the initial item and then keeps it synchronized
+   * through realtime updates. RLS controls public visibility.
+   * ========================================================
    */
 
   useEffect(
@@ -328,87 +190,135 @@ export default function CustomPortfolioDetails() {
           null,
         );
 
-
         setError(
           "Project was not found.",
         );
-
 
         setLoading(
           false,
         );
 
-
         return;
       }
 
 
+      let mounted =
+        true;
+
       setLoading(
         true,
       );
-
 
       setError(
         "",
       );
 
 
-      const projectReference =
-        doc(
-          db,
-          "customPortfolio",
-          projectId,
-        );
+      void getCustomPortfolioItem(
+        projectId,
+      )
+        .then(
+          (portfolioItem) => {
 
+            if (!mounted) {
+              return;
+            }
 
-      const unsubscribe =
-        onSnapshot(
-
-          projectReference,
-
-          (
-            snapshot,
-          ) => {
-
-            if (
-              !snapshot.exists()
-            ) {
-
+            if (!portfolioItem) {
               setItem(
                 null,
               );
-
 
               setError(
                 "This portfolio project does not exist.",
               );
 
-
               setLoading(
                 false,
               );
 
-
               return;
             }
 
-
-            const normalizedItem =
-              normalizePortfolioItem(
-                snapshot.id,
-                snapshot.data(),
-              );
-
-
             setItem(
-              normalizedItem,
+              portfolioItem,
             );
-
 
             setError(
               "",
             );
 
+            setLoading(
+              false,
+            );
+
+          },
+        )
+        .catch(
+          (loadError) => {
+
+            if (!mounted) {
+              return;
+            }
+
+            console.error(
+              "Portfolio detail load failed:",
+              loadError,
+            );
+
+            setError(
+              loadError instanceof Error
+                ? loadError.message
+                : "Unable to load this project.",
+            );
+
+            setLoading(
+              false,
+            );
+
+          },
+        );
+
+
+      const unsubscribe =
+        subscribeCustomPortfolio(
+
+          (items) => {
+
+            if (!mounted) {
+              return;
+            }
+
+            const matchingItem =
+              items.find(
+                (portfolioItem) =>
+                  portfolioItem.id ===
+                  projectId,
+              ) ?? null;
+
+            if (!matchingItem) {
+              setItem(
+                null,
+              );
+
+              setError(
+                "This portfolio project does not exist.",
+              );
+
+              setLoading(
+                false,
+              );
+
+              return;
+            }
+
+            setItem(
+              matchingItem,
+            );
+
+            setError(
+              "",
+            );
 
             setLoading(
               false,
@@ -416,15 +326,16 @@ export default function CustomPortfolioDetails() {
 
           },
 
-          (
-            listenerError,
-          ) => {
+          (listenerError) => {
+
+            if (!mounted) {
+              return;
+            }
 
             console.error(
               "Portfolio detail listener failed:",
               listenerError,
             );
-
 
             setError(
               listenerError instanceof Error
@@ -432,7 +343,6 @@ export default function CustomPortfolioDetails() {
                 : "Unable to load this project.",
             );
 
-
             setLoading(
               false,
             );
@@ -442,8 +352,13 @@ export default function CustomPortfolioDetails() {
         );
 
 
-      return () =>
+      return () => {
+
+        mounted = false;
+
         unsubscribe();
+
+      };
 
     },
     [

@@ -3,17 +3,377 @@ import {
   Routes,
 } from "react-router-dom";
 
-import type {
-  ReactNode,
+import {
+  lazy,
+  Suspense,
+  type ReactNode,
 } from "react";
 
-import Terms from "../pages/Legal/Terms";
-import PrivacyPolicy from "../pages/Legal/PrivacyPolicy";
 
 /*
  * ==========================================================
- * LAYOUTS
+ * LAZY PAGE IMPORTS
  * ==========================================================
+ *
+ * Pages are loaded only when the corresponding route is
+ * visited.
+ *
+ * This keeps the initial JavaScript bundle smaller.
+ */
+
+
+/*
+ * ----------------------------------------------------------
+ * LEGAL
+ * ----------------------------------------------------------
+ */
+
+const Terms =
+  lazy(
+    () =>
+      import(
+        "../pages/Legal/Terms"
+      ),
+  );
+
+const PrivacyPolicy =
+  lazy(
+    () =>
+      import(
+        "../pages/Legal/PrivacyPolicy"
+      ),
+  );
+
+
+/*
+ * ----------------------------------------------------------
+ * PUBLIC
+ * ----------------------------------------------------------
+ */
+
+const Home =
+  lazy(
+    () =>
+      import(
+        "../pages/Home/Home"
+      ),
+  );
+
+const About =
+  lazy(
+    () =>
+      import(
+        "../pages/About/About"
+      ),
+  );
+
+const Products =
+  lazy(
+    () =>
+      import(
+        "../pages/Products/Products"
+      ),
+  );
+
+const ProductDetails =
+  lazy(
+    () =>
+      import(
+        "../pages/Products/ProductDetails"
+      ),
+  );
+
+const Printing3D =
+  lazy(
+    () =>
+      import(
+        "../pages/Printing3D/Printing3D"
+      ),
+  );
+
+const MyPrintingOrders =
+  lazy(
+    () =>
+      import(
+        "../pages/Printing3D/MyPrintingOrders"
+      ),
+  );
+
+const Contact =
+  lazy(
+    () =>
+      import(
+        "../pages/Contact/Contact"
+      ),
+  );
+
+
+/*
+ * ----------------------------------------------------------
+ * CUSTOM SOLUTIONS
+ * ----------------------------------------------------------
+ */
+
+const CustomSolutions =
+  lazy(
+    () =>
+      import(
+        "../pages/CustomSolutions/CustomSolutions"
+      ),
+  );
+
+const CustomProjectRequest =
+  lazy(
+    () =>
+      import(
+        "../pages/CustomSolutions/CustomProjectRequest"
+      ),
+  );
+
+const CustomProjectDetails =
+  lazy(
+    () =>
+      import(
+        "../pages/CustomSolutions/CustomProjectDetails"
+      ),
+  );
+
+const CustomQuotationView =
+  lazy(
+    () =>
+      import(
+        "../pages/CustomSolutions/CustomQuotationView"
+      ),
+  );
+
+const CustomProjectPayment =
+  lazy(
+    () =>
+      import(
+        "../pages/CustomSolutions/CustomProjectPayment"
+      ),
+  );
+
+const CustomPortfolioDetails =
+  lazy(
+    () =>
+      import(
+        "../pages/CustomSolutions/CustomPortfolioDetails"
+      ),
+  );
+
+
+/*
+ * ----------------------------------------------------------
+ * AUTH
+ * ----------------------------------------------------------
+ */
+
+const Login =
+  lazy(
+    () =>
+      import(
+        "../pages/Auth/Login"
+      ),
+  );
+
+const Register =
+  lazy(
+    () =>
+      import(
+        "../pages/Auth/Register"
+      ),
+  );
+
+
+/*
+ * ----------------------------------------------------------
+ * CUSTOMER
+ * ----------------------------------------------------------
+ */
+
+const Dashboard =
+  lazy(
+    () =>
+      import(
+        "../pages/Dashboard/Dashboard"
+      ),
+  );
+
+const Cart =
+  lazy(
+    () =>
+      import(
+        "../pages/Cart/Cart"
+      ),
+  );
+
+const Checkout =
+  lazy(
+    () =>
+      import(
+        "../pages/Checkout/Checkout"
+      ),
+  );
+
+const CheckoutSuccess =
+  lazy(
+    () =>
+      import(
+        "../pages/Checkout/CheckoutSuccess"
+      ),
+  );
+
+
+
+/*
+ * ----------------------------------------------------------
+ * ERROR
+ * ----------------------------------------------------------
+ */
+
+const NotFound =
+  lazy(
+    () =>
+      import(
+        "../pages/NotFound"
+      ),
+  );
+
+
+/*
+ * ----------------------------------------------------------
+ * ADMIN
+ * ----------------------------------------------------------
+ */
+
+const AdminDashboard =
+  lazy(
+    () =>
+      import(
+        "../pages/Admin/dashboard/AdminDashboard"
+      ),
+  );
+
+const ProductManager =
+  lazy(
+    () =>
+      import(
+        "../pages/Admin/products/ProductManager"
+      ),
+  );
+
+const ProductForm =
+  lazy(
+    () =>
+      import(
+        "../pages/Admin/products/ProductForm"
+      ),
+  );
+
+const OrderManager =
+  lazy(
+    () =>
+      import(
+        "../pages/Admin/orders/OrderManager"
+      ),
+  );
+
+const CustomerManager =
+  lazy(
+    () =>
+      import(
+        "../pages/Admin/customers/CustomerManager"
+      ),
+  );
+
+const PrintingDashboard =
+  lazy(
+    () =>
+      import(
+        "../pages/Admin/printing/PrintingDashboard"
+      ),
+  );
+
+const PrintingSettings =
+  lazy(
+    () =>
+      import(
+        "../pages/Admin/printing/PrintingSettings"
+      ),
+  );
+
+const WebsiteManager =
+  lazy(
+    () =>
+      import(
+        "../pages/Admin/website/WebsiteManager"
+      ),
+  );
+
+const ContactManager =
+  lazy(
+    () =>
+      import(
+        "../pages/Admin/contacts/ContactManager"
+      ),
+  );
+
+const AdminSettings =
+  lazy(
+    () =>
+      import(
+        "../pages/Admin/settings/AdminSettings"
+      ),
+  );
+
+
+/*
+ * ----------------------------------------------------------
+ * ADMIN CUSTOM SOLUTIONS
+ * ----------------------------------------------------------
+ */
+
+const CustomSolutionsManager =
+  lazy(
+    () =>
+      import(
+        "../pages/Admin/customSolutions/CustomSolutionsManager"
+      ),
+  );
+
+const AdminCustomProjectDetails =
+  lazy(
+    () =>
+      import(
+        "../pages/Admin/customSolutions/CustomProjectDetails"
+      ),
+  );
+
+const CustomQuotation =
+  lazy(
+    () =>
+      import(
+        "../pages/Admin/customSolutions/CustomQuotation"
+      ),
+  );
+
+const CustomShowcaseManager =
+  lazy(
+    () =>
+      import(
+        "../pages/Admin/customSolutions/CustomShowcaseManager"
+      ),
+  );
+
+
+/*
+ * ==========================================================
+ * EAGER GLOBAL COMPONENTS
+ * ==========================================================
+ *
+ * Layouts and route guards stay eager because they are small
+ * and are needed to establish the application shell.
  */
 
 import PageLayout
@@ -21,164 +381,6 @@ import PageLayout
 
 import AdminLayout
   from "../components/layout/AdminLayout";
-
-
-/*
- * ==========================================================
- * PUBLIC PAGES
- * ==========================================================
- */
-
-import Home
-  from "../pages/Home/Home";
-
-import About
-  from "../pages/About/About";
-
-import Products
-  from "../pages/Products/Products";
-
-import ProductDetails
-  from "../pages/Products/ProductDetails";
-
-import Printing3D
-  from "../pages/Printing3D/Printing3D";
-
-import MyPrintingOrders
-  from "../pages/Printing3D/MyPrintingOrders";
-
-import Contact
-  from "../pages/Contact/Contact";
-
-
-/*
- * ==========================================================
- * CUSTOM SOLUTIONS
- * ==========================================================
- */
-
-import CustomSolutions
-  from "../pages/CustomSolutions/CustomSolutions";
-
-import CustomProjectRequest
-  from "../pages/CustomSolutions/CustomProjectRequest";
-
-import CustomProjectDetails
-  from "../pages/CustomSolutions/CustomProjectDetails";
-
-import CustomQuotationView
-  from "../pages/CustomSolutions/CustomQuotationView";
-
-import CustomProjectPayment
-  from "../pages/CustomSolutions/CustomProjectPayment";
-
-import CustomPortfolioDetails
-  from "../pages/CustomSolutions/CustomPortfolioDetails";
-
-
-/*
- * ==========================================================
- * AUTH
- * ==========================================================
- */
-
-import Login
-  from "../pages/Auth/Login";
-
-import Register
-  from "../pages/Auth/Register";
-
-
-/*
- * ==========================================================
- * CUSTOMER
- * ==========================================================
- */
-
-import Dashboard
-  from "../pages/Dashboard/Dashboard";
-
-import Cart
-  from "../pages/Cart/Cart";
-
-import Checkout
-  from "../pages/Checkout/Checkout";
-
-import CheckoutSuccess
-  from "../pages/Checkout/CheckoutSuccess";
-
-
-/*
- * ==========================================================
- * ERROR
- * ==========================================================
- */
-
-import NotFound
-  from "../pages/NotFound";
-
-
-/*
- * ==========================================================
- * ADMIN
- * ==========================================================
- */
-
-import AdminDashboard
-  from "../pages/Admin/dashboard/AdminDashboard";
-
-import ProductManager
-  from "../pages/Admin/products/ProductManager";
-
-import ProductForm
-  from "../pages/Admin/products/ProductForm";
-
-import OrderManager
-  from "../pages/Admin/orders/OrderManager";
-
-import CustomerManager
-  from "../pages/Admin/customers/CustomerManager";
-
-import PrintingDashboard
-  from "../pages/Admin/printing/PrintingDashboard";
-
-import PrintingSettings
-  from "../pages/Admin/printing/PrintingSettings";
-
-import WebsiteManager
-  from "../pages/Admin/website/WebsiteManager";
-
-import ContactManager
-  from "../pages/Admin/contacts/ContactManager";
-
-import AdminSettings
-  from "../pages/Admin/settings/AdminSettings";
-
-
-/*
- * ==========================================================
- * ADMIN CUSTOM SOLUTIONS
- * ==========================================================
- */
-
-import CustomSolutionsManager
-  from "../pages/Admin/customSolutions/CustomSolutionsManager";
-
-import AdminCustomProjectDetails
-  from "../pages/Admin/customSolutions/CustomProjectDetails";
-
-import CustomQuotation
-  from "../pages/Admin/customSolutions/CustomQuotation";
-
-import CustomShowcaseManager
-  from "../pages/Admin/customSolutions/CustomShowcaseManager";
-
-
-/*
- * ==========================================================
- * ROUTE GUARDS
- * ==========================================================
- */
 
 import ProtectedRoute
   from "./ProtectedRoute";
@@ -196,18 +398,12 @@ import AdminRoute
 function StorePage({
   children,
 }: {
-  children:
-    ReactNode;
+  children: ReactNode;
 }) {
 
   return (
-
     <PageLayout>
-
-      {
-        children
-      }
-
+      {children}
     </PageLayout>
   );
 }
@@ -222,19 +418,39 @@ function StorePage({
 function AdminPage({
   children,
 }: {
-  children:
-    ReactNode;
+  children: ReactNode;
 }) {
 
   return (
-
     <AdminLayout>
-
-      {
-        children
-      }
-
+      {children}
     </AdminLayout>
+  );
+}
+
+
+/*
+ * ==========================================================
+ * LAZY ROUTE LOADING
+ * ==========================================================
+ */
+
+function RouteLoading() {
+
+  return (
+    <div className="flex min-h-[60vh] items-center justify-center bg-white px-6">
+
+      <div className="text-center">
+
+        <div className="mx-auto h-9 w-9 animate-spin rounded-full border-2 border-neutral-200 border-t-[#D4AF37]" />
+
+        <p className="mt-4 text-sm font-semibold text-neutral-600">
+          Loading…
+        </p>
+
+      </div>
+
+    </div>
   );
 }
 
@@ -249,408 +465,102 @@ export function AppRoutes() {
 
   return (
 
-    <Routes>
-
-      {/* ====================================================
-          PUBLIC
-      ===================================================== */}
-
-      <Route
-        path="/"
-
-        element={
-          <StorePage>
-            <Home />
-          </StorePage>
-        }
-      />
-
-
-      <Route
-        path="/about"
-
-        element={
-          <StorePage>
-            <About />
-          </StorePage>
-        }
-      />
-
-
-      <Route
-        path="/products"
-
-        element={
-          <StorePage>
-            <Products />
-          </StorePage>
-        }
-      />
-
-
-      <Route
-        path="/products/:id"
-
-        element={
-          <StorePage>
-            <ProductDetails />
-          </StorePage>
-        }
-      />
-
-
-      <Route
-        path="/3d-printing"
-
-        element={
-          <StorePage>
-            <Printing3D />
-          </StorePage>
-        }
-      />
-
-
-      <Route
-        path="/contact"
-
-        element={
-          <StorePage>
-            <Contact />
-          </StorePage>
-        }
-      />
-
-<Route
-  path="/terms"
-  element={
-    <StorePage>
-      <Terms />
-    </StorePage>
-  }
-/>
-
-<Route
-  path="/privacy"
-  element={
-    <StorePage>
-      <PrivacyPolicy />
-    </StorePage>
-  }
-/>
-
-      {/* ====================================================
-          CUSTOM SOLUTIONS
-      ===================================================== */}
-
-      <Route
-        path="/custom-solutions"
-
-        element={
-          <StorePage>
-            <CustomSolutions />
-          </StorePage>
-        }
-      />
-
-
-      <Route
-        path="/custom-solutions/request"
-
-        element={
-          <StorePage>
-            <CustomProjectRequest />
-          </StorePage>
-        }
-      />
-
-
-      <Route
-        path="/custom-solutions/work/:projectId"
-
-        element={
-          <StorePage>
-            <CustomPortfolioDetails />
-          </StorePage>
-        }
-      />
-
-
-      {/* ====================================================
-          AUTH
-      ===================================================== */}
-
-      <Route
-        path="/login"
-
-        element={
-          <StorePage>
-            <Login />
-          </StorePage>
-        }
-      />
-
-
-      <Route
-        path="/register"
-
-        element={
-          <StorePage>
-            <Register />
-          </StorePage>
-        }
-      />
-
-
-      {/* ====================================================
-          CUSTOMER ROUTES
-      ===================================================== */}
-
-      <Route
-        element={
-          <ProtectedRoute />
-        }
-      >
-
-        <Route
-          path="/dashboard"
-
-          element={
-            <StorePage>
-              <Dashboard />
-            </StorePage>
-          }
-        />
-
-
-        <Route
-          path="/cart"
-
-          element={
-            <StorePage>
-              <Cart />
-            </StorePage>
-          }
-        />
-
-
-        <Route
-          path="/checkout"
-
-          element={
-            <StorePage>
-              <Checkout />
-            </StorePage>
-          }
-        />
-
-
-        <Route
-          path="/checkout/success"
-
-          element={
-            <StorePage>
-              <CheckoutSuccess />
-            </StorePage>
-          }
-        />
-
-
-        <Route
-          path="/3d-printing/orders"
-
-          element={
-            <StorePage>
-              <MyPrintingOrders />
-            </StorePage>
-          }
-        />
-
-
-        {/* CUSTOM PROJECT */}
-
-        <Route
-          path="/custom-solutions/projects/:projectId"
-
-          element={
-            <StorePage>
-              <CustomProjectDetails />
-            </StorePage>
-          }
-        />
-
-
-        {/* CUSTOMER QUOTATION */}
-
-        <Route
-          path="/custom-solutions/projects/:projectId/quotation/:quotationId"
-
-          element={
-            <StorePage>
-              <CustomQuotationView />
-            </StorePage>
-          }
-        />
-
-
-        {/* CUSTOMER PAYMENT */}
-
-        <Route
-          path="/custom-solutions/projects/:projectId/payment/:quotationId"
-
-          element={
-            <StorePage>
-              <CustomProjectPayment />
-            </StorePage>
-          }
-        />
-
-      </Route>
-
-
-      {/* ====================================================
-          ADMIN
-      ===================================================== */}
-
-      <Route
-        element={
-          <AdminRoute />
-        }
-      >
+    <Suspense
+      fallback={
+        <RouteLoading />
+      }
+    >
+
+      <Routes>
 
         {/* ==================================================
-            DASHBOARD
+            PUBLIC
         =================================================== */}
 
         <Route
-          path="/admin"
+          path="/"
 
           element={
-            <AdminPage>
-              <AdminDashboard />
-            </AdminPage>
-          }
-        />
-
-
-        {/* ==================================================
-            PRODUCTS
-        =================================================== */}
-
-        <Route
-          path="/admin/products"
-
-          element={
-            <AdminPage>
-              <ProductManager />
-            </AdminPage>
+            <StorePage>
+              <Home />
+            </StorePage>
           }
         />
 
 
         <Route
-          path="/admin/products/new"
+          path="/about"
 
           element={
-            <AdminPage>
-              <ProductForm />
-            </AdminPage>
+            <StorePage>
+              <About />
+            </StorePage>
           }
         />
 
 
         <Route
-          path="/admin/products/:productId/edit"
+          path="/products"
 
           element={
-            <AdminPage>
-              <ProductForm />
-            </AdminPage>
+            <StorePage>
+              <Products />
+            </StorePage>
           }
         />
 
 
-        {/* ==================================================
-            ORDERS
-        =================================================== */}
-
         <Route
-          path="/admin/orders"
+          path="/products/:id"
 
           element={
-            <AdminPage>
-              <OrderManager />
-            </AdminPage>
+            <StorePage>
+              <ProductDetails />
+            </StorePage>
           }
         />
 
 
-        {/* ==================================================
-            CUSTOMERS
-        =================================================== */}
-
         <Route
-          path="/admin/customers"
+          path="/3d-printing"
 
           element={
-            <AdminPage>
-              <CustomerManager />
-            </AdminPage>
+            <StorePage>
+              <Printing3D />
+            </StorePage>
           }
         />
 
 
-        {/* ==================================================
-            3D PRINTING
-        =================================================== */}
-
-        {/* Current route */}
-
         <Route
-          path="/admin/printing"
+          path="/contact"
 
           element={
-            <AdminPage>
-              <PrintingDashboard />
-            </AdminPage>
+            <StorePage>
+              <Contact />
+            </StorePage>
           }
         />
 
 
-        {/* Alias used by your sidebar/browser URL */}
-
         <Route
-          path="/admin/3d-printing"
+          path="/terms"
 
           element={
-            <AdminPage>
-              <PrintingDashboard />
-            </AdminPage>
+            <StorePage>
+              <Terms />
+            </StorePage>
           }
         />
 
 
-        {/* Printing settings */}
-
         <Route
-          path="/admin/printing/settings"
+          path="/privacy"
 
           element={
-            <AdminPage>
-              <PrintingSettings />
-            </AdminPage>
-          }
-        />
-
-
-        {/* Settings alias */}
-
-        <Route
-          path="/admin/3d-printing/settings"
-
-          element={
-            <AdminPage>
-              <PrintingSettings />
-            </AdminPage>
+            <StorePage>
+              <PrivacyPolicy />
+            </StorePage>
           }
         />
 
@@ -660,123 +570,400 @@ export function AppRoutes() {
         =================================================== */}
 
         <Route
-          path="/admin/custom-solutions"
+          path="/custom-solutions"
 
           element={
-            <AdminPage>
-              <CustomSolutionsManager />
-            </AdminPage>
+            <StorePage>
+              <CustomSolutions />
+            </StorePage>
+          }
+        />
+
+
+        <Route
+          path="/custom-solutions/request"
+
+          element={
+            <StorePage>
+              <CustomProjectRequest />
+            </StorePage>
+          }
+        />
+
+
+        <Route
+          path="/custom-solutions/work/:projectId"
+
+          element={
+            <StorePage>
+              <CustomPortfolioDetails />
+            </StorePage>
           }
         />
 
 
         {/* ==================================================
-            CUSTOM PROJECT DETAILS
+            AUTH
         =================================================== */}
 
         <Route
-          path="/admin/custom-solutions/projects/:projectId"
+          path="/login"
 
           element={
-            <AdminPage>
-              <AdminCustomProjectDetails />
-            </AdminPage>
+            <StorePage>
+              <Login />
+            </StorePage>
+          }
+        />
+
+
+        <Route
+          path="/register"
+
+          element={
+            <StorePage>
+              <Register />
+            </StorePage>
           }
         />
 
 
         {/* ==================================================
-            CUSTOM QUOTATION
+            PROTECTED CUSTOMER ROUTES
         =================================================== */}
 
         <Route
-          path="/admin/custom-solutions/projects/:projectId/quotation"
-
           element={
-            <AdminPage>
-              <CustomQuotation />
-            </AdminPage>
+            <ProtectedRoute />
           }
-        />
+        >
+
+          <Route
+            path="/dashboard"
+
+            element={
+              <StorePage>
+                <Dashboard />
+              </StorePage>
+            }
+          />
+
+
+          <Route
+            path="/cart"
+
+            element={
+              <StorePage>
+                <Cart />
+              </StorePage>
+            }
+          />
+
+
+          <Route
+            path="/checkout"
+
+            element={
+              <StorePage>
+                <Checkout />
+              </StorePage>
+            }
+          />
+
+
+          <Route
+            path="/checkout/success"
+
+            element={
+              <StorePage>
+                <CheckoutSuccess />
+              </StorePage>
+            }
+          />
+
+
+          <Route
+            path="/3d-printing/orders"
+
+            element={
+              <StorePage>
+                <MyPrintingOrders />
+              </StorePage>
+            }
+          />
+
+
+          <Route
+            path="/custom-solutions/projects/:projectId"
+
+            element={
+              <StorePage>
+                <CustomProjectDetails />
+              </StorePage>
+            }
+          />
+
+
+          <Route
+            path="/custom-solutions/projects/:projectId/quotation/:quotationId"
+
+            element={
+              <StorePage>
+                <CustomQuotationView />
+              </StorePage>
+            }
+          />
+
+
+          <Route
+            path="/custom-solutions/projects/:projectId/payment/:quotationId"
+
+            element={
+              <StorePage>
+                <CustomProjectPayment />
+              </StorePage>
+            }
+          />
+
+        </Route>
 
 
         {/* ==================================================
-            SHOWCASE
+            ADMIN
         =================================================== */}
 
         <Route
-          path="/admin/custom-solutions/showcase"
-
           element={
-            <AdminPage>
-              <CustomShowcaseManager />
-            </AdminPage>
+            <AdminRoute />
           }
-        />
+        >
+
+          <Route
+            path="/admin"
+
+            element={
+              <AdminPage>
+                <AdminDashboard />
+              </AdminPage>
+            }
+          />
+
+
+          <Route
+            path="/admin/products"
+
+            element={
+              <AdminPage>
+                <ProductManager />
+              </AdminPage>
+            }
+          />
+
+
+          <Route
+            path="/admin/products/new"
+
+            element={
+              <AdminPage>
+                <ProductForm />
+              </AdminPage>
+            }
+          />
+
+
+          <Route
+            path="/admin/products/:productId/edit"
+
+            element={
+              <AdminPage>
+                <ProductForm />
+              </AdminPage>
+            }
+          />
+
+
+          <Route
+            path="/admin/orders"
+
+            element={
+              <AdminPage>
+                <OrderManager />
+              </AdminPage>
+            }
+          />
+
+
+          <Route
+            path="/admin/customers"
+
+            element={
+              <AdminPage>
+                <CustomerManager />
+              </AdminPage>
+            }
+          />
+
+
+          {/* =================================================
+              3D PRINTING
+          ================================================== */}
+
+          <Route
+            path="/admin/printing"
+
+            element={
+              <AdminPage>
+                <PrintingDashboard />
+              </AdminPage>
+            }
+          />
+
+
+          <Route
+            path="/admin/3d-printing"
+
+            element={
+              <AdminPage>
+                <PrintingDashboard />
+              </AdminPage>
+            }
+          />
+
+
+          <Route
+            path="/admin/printing/settings"
+
+            element={
+              <AdminPage>
+                <PrintingSettings />
+              </AdminPage>
+            }
+          />
+
+
+          <Route
+            path="/admin/3d-printing/settings"
+
+            element={
+              <AdminPage>
+                <PrintingSettings />
+              </AdminPage>
+            }
+          />
+
+
+          {/* =================================================
+              CUSTOM SOLUTIONS
+          ================================================== */}
+
+          <Route
+            path="/admin/custom-solutions"
+
+            element={
+              <AdminPage>
+                <CustomSolutionsManager />
+              </AdminPage>
+            }
+          />
+
+
+          <Route
+            path="/admin/custom-solutions/projects/:projectId"
+
+            element={
+              <AdminPage>
+                <AdminCustomProjectDetails />
+              </AdminPage>
+            }
+          />
+
+
+          <Route
+            path="/admin/custom-solutions/projects/:projectId/quotation"
+
+            element={
+              <AdminPage>
+                <CustomQuotation />
+              </AdminPage>
+            }
+          />
+
+
+          <Route
+            path="/admin/custom-solutions/showcase"
+
+            element={
+              <AdminPage>
+                <CustomShowcaseManager />
+              </AdminPage>
+            }
+          />
+
+
+          {/* =================================================
+              WEBSITE
+          ================================================== */}
+
+          <Route
+            path="/admin/website"
+
+            element={
+              <AdminPage>
+                <WebsiteManager />
+              </AdminPage>
+            }
+          />
+
+
+          {/* =================================================
+              CONTACTS
+          ================================================== */}
+
+          <Route
+            path="/admin/contacts"
+
+            element={
+              <AdminPage>
+                <ContactManager />
+              </AdminPage>
+            }
+          />
+
+
+          {/* =================================================
+              SETTINGS
+          ================================================== */}
+
+          <Route
+            path="/admin/settings"
+
+            element={
+              <AdminPage>
+                <AdminSettings />
+              </AdminPage>
+            }
+          />
+
+        </Route>
 
 
         {/* ==================================================
-            WEBSITE
+            404
         =================================================== */}
 
         <Route
-          path="/admin/website"
+          path="*"
 
           element={
-            <AdminPage>
-              <WebsiteManager />
-            </AdminPage>
+            <StorePage>
+              <NotFound />
+            </StorePage>
           }
         />
 
+      </Routes>
 
-        {/* ==================================================
-            ENQUIRIES
-        =================================================== */}
-
-        <Route
-          path="/admin/contacts"
-
-          element={
-            <AdminPage>
-              <ContactManager />
-            </AdminPage>
-          }
-        />
-
-
-        {/* ==================================================
-            SETTINGS
-        =================================================== */}
-
-        <Route
-          path="/admin/settings"
-
-          element={
-            <AdminPage>
-              <AdminSettings />
-            </AdminPage>
-          }
-        />
-
-      </Route>
-
-
-      {/* ====================================================
-          404
-      ===================================================== */}
-
-      <Route
-        path="*"
-
-        element={
-          <StorePage>
-            <NotFound />
-          </StorePage>
-        }
-      />
-
-    </Routes>
+    </Suspense>
   );
 }
 

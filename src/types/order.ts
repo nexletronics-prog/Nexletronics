@@ -1,16 +1,3 @@
-/*
- * ==========================================================
- * ORDER TYPES
- * ==========================================================
- */
-
-
-/*
- * ==========================================================
- * ORDER STATUS
- * ==========================================================
- */
-
 export type OrderStatus =
   | "pending"
   | "confirmed"
@@ -20,12 +7,6 @@ export type OrderStatus =
   | "cancelled";
 
 
-/*
- * ==========================================================
- * PAYMENT STATUS
- * ==========================================================
- */
-
 export type PaymentStatus =
   | "pending"
   | "paid"
@@ -33,68 +14,22 @@ export type PaymentStatus =
   | "refunded";
 
 
-/*
- * ==========================================================
- * ORDER ITEM
- * ==========================================================
- */
-
 export interface OrderItem {
-  /*
-   * Firestore product document ID.
-   */
-
   productId: string;
-
-
-  /*
-   * Product name stored at the time of purchase.
-   */
 
   name: string;
 
-
-  /*
-   * Optional SKU.
-   */
-
   sku?: string;
-
-
-  /*
-   * Price of one unit at the time of purchase.
-   */
 
   price: number;
 
-
-  /*
-   * Quantity purchased.
-   */
-
   quantity: number;
 
-
-  /*
-   * Optional product image.
-   */
-
   image?: string;
-
-
-  /*
-   * Optional product category.
-   */
 
   category?: string;
 }
 
-
-/*
- * ==========================================================
- * SHIPPING ADDRESS
- * ==========================================================
- */
 
 export interface ShippingAddress {
   name: string;
@@ -110,101 +45,65 @@ export interface ShippingAddress {
   state: string;
 
   pincode: string;
+
+  country?: string;
+
+  companyName?: string;
+
+  gstin?: string;
 }
 
 
-/*
- * ==========================================================
- * ORDER
- * ==========================================================
- */
-
 export interface Order {
-  /*
-   * Firestore order document ID.
-   */
-
   id: string;
-
-
-  /*
-   * Firebase Authentication UID of the customer.
-   */
 
   userId: string;
 
-
-  /*
-   * Customer email.
-   */
-
   userEmail: string;
 
+  customer?: {
+    name?: string;
 
-  /*
-   * Products purchased.
-   */
+    email?: string;
+
+    phone?: string;
+  };
+
 
   items: OrderItem[];
 
 
-  /*
-   * Delivery information.
-   */
-
   shippingAddress: ShippingAddress;
 
 
-  /*
-   * Price breakdown.
-   */
+  billingAddress?: ShippingAddress | null;
+
+
+  billingAddressSameAsShipping?: boolean;
+
 
   subtotal: number;
 
   shipping: number;
 
+  tax?: number;
+
+  discount?: number;
+
   total: number;
 
-
-  /*
-   * Currency used by the order.
-   */
 
   currency: string;
 
 
-  /*
-   * Current order state.
-   */
-
   status: OrderStatus;
 
-
-  /*
-   * Current payment state.
-   */
 
   paymentStatus: PaymentStatus;
 
 
-  /*
-   * Payment provider/method.
-   *
-   * Examples:
-   * "pending"
-   * "razorpay"
-   * "cod"
-   */
-
   paymentMethod: string;
 
-
-  /*
-   * Razorpay fields.
-   *
-   * These remain optional because Razorpay will be added
-   * later.
-   */
 
   razorpayOrderId?: string;
 
@@ -212,13 +111,14 @@ export interface Order {
 
   razorpaySignature?: string;
 
+  razorpayPaymentStatus?: string;
 
-  /*
-   * Firestore timestamps.
-   *
-   * `unknown` keeps this compatible with both Firestore
-   * Timestamp values and serverTimestamp results.
-   */
+  razorpayAmount?: number;
+
+  razorpayCurrency?: string;
+
+  receipt?: string;
+
 
   createdAt?: unknown;
 

@@ -1,19 +1,18 @@
-import { createClient } from "@supabase/supabase-js";
+/*
+ * ==========================================================
+ * SUPABASE CLIENT COMPATIBILITY EXPORT
+ * ==========================================================
+ *
+ * Keep a single Supabase client for the application.
+ *
+ * The canonical client lives in:
+ *
+ *     src/lib/supabase.ts
+ *
+ * That client injects the current Firebase ID token through
+ * Supabase's accessToken callback, so Firebase remains the
+ * authentication system while Supabase handles application
+ * data.
+ */
 
-const SUPABASE_URL =
-  "https://ivbkgfwyocmazhrqibqn.supabase.co";
-
-const SUPABASE_PUBLISHABLE_KEY =
-  "sb_publishable_wKsT7-WtmJgxBVSxV1rDCg_CNCgWBP8";
-
-export const supabase = createClient(
-  SUPABASE_URL,
-  SUPABASE_PUBLISHABLE_KEY,
-  {
-    auth: {
-      persistSession: false,
-      autoRefreshToken: false,
-      detectSessionInUrl: false,
-    },
-  },
-);
+export { supabase } from "../lib/supabase";

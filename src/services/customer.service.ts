@@ -1,250 +1,107 @@
-import {
-  collection,
-  doc,
-  getDoc,
-  getDocs,
-  orderBy,
-  query,
-  serverTimestamp,
-  setDoc,
-} from "firebase/firestore";
-
-import {
-  db,
-} from "../firebase/config";
-
-
-/*
- * ==========================================================
- * CUSTOMER PROFILE
- * ==========================================================
- */
+import { supabase } from "../lib/supabase";
 
 export interface CustomerProfile {
   uid: string;
-
   name: string;
-
   email: string;
-
   phone?: string;
-
   photoURL?: string;
-
+  role?: "customer" | "admin";
   createdAt?: unknown;
-
   updatedAt?: unknown;
-
   orderCount?: number;
-
   totalSpent?: number;
 }
 
-
-/*
- * ==========================================================
- * SAVE CUSTOMER PROFILE
- * ==========================================================
- */
-
-export async function saveCustomerProfile(
-  profile: {
-    uid: string;
-    name: string;
-    email: string;
-    phone?: string;
-    photoURL?: string;
-  },
-): Promise<void> {
-  if (!profile.uid) {
-    throw new Error(
-      "Customer UID is required.",
-    );
-  }
-
-
-  await setDoc(
-    doc(
-      db,
-      "users",
-      profile.uid,
-    ),
-    {
-      uid:
-        profile.uid,
-
-      name:
-        profile.name.trim(),
-
-      email:
-        profile.email.trim()
-          .toLowerCase(),
-
-      phone:
-        profile.phone?.trim() ||
-        "",
-
-      photoURL:
-        profile.photoURL ||
-        "",
-
-      updatedAt:
-        serverTimestamp(),
-
-      /*
-       * merge:true means an existing customer's
-       * createdAt value is preserved.
-       */
-
-    },
-    {
-      merge: true,
-    },
-  );
+interface ProfileRow {
+  firebase_uid: string;
+  name: string | null;
+  email: string | null;
+  phone: string | null;
+  photo_url: string | null;
+  role: string | null;
+  created_at: string | null;
+  updated_at: string | null;
 }
 
+function normalizeProfile(row: ProfileRow): CustomerProfile {
+  return {
+    uid: row.firebase_uid,
+    name: typeof row.name === "string" ? row.name : "Customer",
+    email: typeof row.email === "string" ? row.email : "",
+    phone: typeof row.phone === "string" ? row.phone : "",
+    photoURL: typeof row.photo_url === "string" ? row.photo_url : "",
+    role: row.role === "admin" ? "admin" : "customer",
+    createdAt: row.created_at ?? undefined,
+    updatedAt: row.updated_at ?? undefined,
+  };
+}
 
-/*
- * ==========================================================
- * GET SINGLE CUSTOMER
- * ==========================================================
- */
+export async function saveCustomerProfile(profile: {
+  uid: string;
+  name: string;
+  email: string;
+  phone?: string;
+  photoURL?: string;
+}): Promise<void> {
+  if (!profile.uid.trim()) {
+    throw new Error("Customer UID is required.");
+  }
+
+  const { error } = await supabase
+    .from("profiles")
+    .upsert(
+      {
+        firebase_uid: profile.uid.trim(),
+        name: profile.name.trim(),
+        email: profile.email.trim().toLowerCase(),
+        phone: profile.phone?.trim() || "",
+        photo_url: profile.photoURL?.trim() || "",
+      },
+      { onConflict: "firebase_uid" },
+    );
+
+  if (error) {
+    console.error("Failed to save customer profile:", error);
+    throw new Error(error.message);
+  }
+}
 
 export async function getCustomerById(
   uid: string,
 ): Promise<CustomerProfile | null> {
-  if (!uid) {
+  if (!uid.trim()) {
     return null;
   }
 
+  const { data, error } = await supabase
+    .from("profiles")
+    .select(
+      "firebase_uid,name,email,phone,photo_url,role,created_at,updated_at",
+    )
+    .eq("firebase_uid", uid.trim())
+    .maybeSingle();
 
-  const snapshot =
-    await getDoc(
-      doc(
-        db,
-        "users",
-        uid,
-      ),
-    );
-
-
-  if (!snapshot.exists()) {
-    return null;
+  if (error) {
+    console.error("Failed to load customer profile:", error);
+    throw new Error(error.message);
   }
 
-
-  const data =
-    snapshot.data();
-
-
-  return {
-    uid:
-      snapshot.id,
-
-    name:
-      typeof data.name ===
-      "string"
-        ? data.name
-        : "Customer",
-
-    email:
-      typeof data.email ===
-      "string"
-        ? data.email
-        : "",
-
-    phone:
-      typeof data.phone ===
-      "string"
-        ? data.phone
-        : "",
-
-    photoURL:
-      typeof data.photoURL ===
-      "string"
-        ? data.photoURL
-        : "",
-
-    createdAt:
-      data.createdAt,
-
-    updatedAt:
-      data.updatedAt,
-  };
+  return data ? normalizeProfile(data as ProfileRow) : null;
 }
 
+export async function getCustomers(): Promise<CustomerProfile[]> {
+  const { data, error } = await supabase
+    .from("profiles")
+    .select(
+      "firebase_uid,name,email,phone,photo_url,role,created_at,updated_at",
+    )
+    .order("created_at", { ascending: false });
 
-/*
- * ==========================================================
- * GET ALL CUSTOMERS
- * ==========================================================
- */
+  if (error) {
+    console.error("Failed to load customers:", error);
+    throw new Error(error.message);
+  }
 
-export async function getCustomers(): Promise<
-  CustomerProfile[]
-> {
-  const customersQuery =
-    query(
-      collection(
-        db,
-        "users",
-      ),
-      orderBy(
-        "createdAt",
-        "desc",
-      ),
-    );
-
-
-  const snapshot =
-    await getDocs(
-      customersQuery,
-    );
-
-
-  return snapshot.docs.map(
-    (
-      document,
-    ) => {
-
-      const data =
-        document.data();
-
-
-      return {
-        uid:
-          document.id,
-
-        name:
-          typeof data.name ===
-          "string"
-            ? data.name
-            : "Customer",
-
-        email:
-          typeof data.email ===
-          "string"
-            ? data.email
-            : "",
-
-        phone:
-          typeof data.phone ===
-          "string"
-            ? data.phone
-            : "",
-
-        photoURL:
-          typeof data.photoURL ===
-          "string"
-            ? data.photoURL
-            : "",
-
-        createdAt:
-          data.createdAt,
-
-        updatedAt:
-          data.updatedAt,
-      };
-    },
-  );
+  return (data ?? []).map((row) => normalizeProfile(row as ProfileRow));
 }

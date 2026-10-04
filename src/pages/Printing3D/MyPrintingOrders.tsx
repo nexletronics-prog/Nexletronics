@@ -15,24 +15,16 @@ import {
 } from "react";
 
 import {
-  collection,
-  onSnapshot,
-  query,
-  where,
-  type DocumentData,
-} from "firebase/firestore";
-
-import {
   Link,
 } from "react-router-dom";
 
 import {
-  db,
-} from "../../firebase/config";
-
-import {
   useAuth,
 } from "../../hooks/useAuth";
+
+import {
+  subscribePrintingOrders,
+} from "../../services/printing.service";
 
 import type {
   PrintingFinish,
@@ -47,10 +39,6 @@ import type {
  * FIRESTORE COLLECTION
  * ==========================================================
  */
-
-const ORDERS_COLLECTION =
-  "threeDPrintOrders";
-
 
 /*
  * ==========================================================
@@ -149,132 +137,36 @@ export default function MyPrintingOrders() {
    * REALTIME ORDERS
    * ========================================================
    *
-   * Every admin change to the customer's printing request
-   * is reflected automatically.
+   * Orders are now loaded from Supabase through the shared
+   * printing service. The subscription continues to reflect
+   * admin changes without requiring a browser refresh.
    */
 
   useEffect(() => {
-
-    if (
-      !user
-    ) {
-
-      setOrders(
-        [],
-      );
-
-      setLoading(
-        false,
-      );
-
+    if (!user) {
+      setOrders([]);
+      setLoading(false);
+      setError("");
       return;
     }
 
+    setLoading(true);
+    setError("");
 
-    setLoading(
-      true,
+    return subscribePrintingOrders(
+      user.uid,
+      (nextOrders) => {
+        setOrders(nextOrders);
+        setLoading(false);
+        setError("");
+      },
+      (listenerError) => {
+        console.error("Unable to load printing orders:", listenerError);
+        setError(listenerError.message || "Unable to load your printing requests.");
+        setLoading(false);
+      },
     );
-
-    setError(
-      "",
-    );
-
-
-    const ordersQuery =
-      query(
-        collection(
-          db,
-          ORDERS_COLLECTION,
-        ),
-        where(
-          "userId",
-          "==",
-          user.uid,
-        ),
-      );
-
-
-    const unsubscribe =
-      onSnapshot(
-        ordersQuery,
-
-        (
-          snapshot,
-        ) => {
-
-          const nextOrders =
-            snapshot.docs.map(
-              (
-                document,
-              ) =>
-                mapPrintingOrder(
-                  document.id,
-                  document.data(),
-                ),
-            );
-
-
-          /*
-           * Newest requests first.
-           */
-
-          nextOrders.sort(
-            (
-              first,
-              second,
-            ) =>
-              getTimestampMilliseconds(
-                second.createdAt,
-              ) -
-              getTimestampMilliseconds(
-                first.createdAt,
-              ),
-          );
-
-
-          setOrders(
-            nextOrders,
-          );
-
-
-          setLoading(
-            false,
-          );
-        },
-
-        (
-          snapshotError,
-        ) => {
-
-          console.error(
-            "Unable to load printing orders:",
-            snapshotError,
-          );
-
-
-          setError(
-            getFirestoreErrorMessage(
-              snapshotError,
-            ),
-          );
-
-
-          setLoading(
-            false,
-          );
-        },
-      );
-
-
-    return () => {
-
-      unsubscribe();
-
-    };
-
-  }, [
-    user,
-  ]);
+  }, [user]);
 
 
   /*
@@ -1661,281 +1553,6 @@ function formatDuration(
 
 /*
  * ==========================================================
- * TIMESTAMP
- * ==========================================================
- */
-
-function getTimestampMilliseconds(
-  value: unknown,
-): number {
-
-  if (
-    value &&
-    typeof value ===
-      "object"
-  ) {
-
-    const timestamp =
-      value as {
-        seconds?: unknown;
-      };
-
-
-    if (
-      typeof timestamp.seconds ===
-      "number"
-    ) {
-
-      return (
-        timestamp.seconds *
-        1000
-      );
-    }
-  }
-
-
-  if (
-    value instanceof
-    Date
-  ) {
-
-    return value.getTime();
-  }
-
-
-  if (
-    typeof value ===
-    "number"
-  ) {
-
-    return value;
-  }
-
-
-  return 0;
-}
-
-
-/*
- * ==========================================================
- * FIRESTORE DOCUMENT MAPPER
- * ==========================================================
- */
-
-function mapPrintingOrder(
-  id: string,
-  data: DocumentData,
-): PrintingOrder {
-
-  const status =
-    isPrintingOrderStatus(
-      data.status,
-    )
-      ? data.status
-      : "pending";
-
-
-  const paymentStatus =
-    isPaymentStatus(
-      data.paymentStatus,
-    )
-      ? data.paymentStatus
-      : "unpaid";
-
-
-  const dimensions =
-    data.dimensions &&
-    typeof data.dimensions ===
-      "object"
-      ? data.dimensions
-      : {};
-
-
-  return {
-
-    id,
-
-    userId:
-      typeof data.userId ===
-        "string"
-        ? data.userId
-        : "",
-
-    customerName:
-      typeof data.customerName ===
-        "string"
-        ? data.customerName
-        : "Customer",
-
-    customerEmail:
-      typeof data.customerEmail ===
-        "string"
-        ? data.customerEmail
-        : "",
-
-    originalFileName:
-      typeof data.originalFileName ===
-        "string"
-        ? data.originalFileName
-        : "model.stl",
-
-    storagePath:
-      typeof data.storagePath ===
-        "string"
-        ? data.storagePath
-        : "",
-
-    material:
-      typeof data.material ===
-        "string"
-        ? data.material
-        : "unknown",
-
-    finish:
-      data.finish ===
-        "premium"
-        ? "premium"
-        : "rough",
-
-    quantity:
-      typeof data.quantity ===
-        "number"
-        ? data.quantity
-        : 1,
-
-    dimensions: {
-
-      width:
-        safeNumber(
-          dimensions.width,
-        ),
-
-      depth:
-        safeNumber(
-          dimensions.depth,
-        ),
-
-      height:
-        safeNumber(
-          dimensions.height,
-        ),
-    },
-
-    volumeCm3:
-      typeof data.volumeCm3 ===
-        "number"
-        ? data.volumeCm3
-        : undefined,
-
-    estimatedWeightGrams:
-      typeof data.estimatedWeightGrams ===
-        "number"
-        ? data.estimatedWeightGrams
-        : undefined,
-
-    estimatedPrintTimeMinutes:
-      typeof data.estimatedPrintTimeMinutes ===
-        "number"
-        ? data.estimatedPrintTimeMinutes
-        : undefined,
-
-    estimate:
-      data.estimate,
-
-    estimatedPrice:
-      typeof data.estimatedPrice ===
-        "number"
-        ? data.estimatedPrice
-        : 0,
-
-    finalPrice:
-      typeof data.finalPrice ===
-        "number"
-        ? data.finalPrice
-        : undefined,
-
-    status,
-
-    paymentStatus,
-
-    adminNotes:
-      typeof data.adminNotes ===
-        "string"
-        ? data.adminNotes
-        : "",
-
-    customerNotes:
-      typeof data.customerNotes ===
-        "string"
-        ? data.customerNotes
-        : "",
-
-    createdAt:
-      data.createdAt,
-
-    updatedAt:
-      data.updatedAt,
-  };
-}
-
-
-/*
- * ==========================================================
- * STATUS GUARD
- * ==========================================================
- */
-
-function isPrintingOrderStatus(
-  value: unknown,
-): value is PrintingOrderStatus {
-
-  return [
-    "pending",
-    "reviewing",
-    "quoted",
-    "payment_pending",
-    "paid",
-    "approved",
-    "printing",
-    "quality_check",
-    "ready",
-    "completed",
-    "rejected",
-    "cancelled",
-  ].includes(
-    String(
-      value,
-    ),
-  );
-}
-
-
-/*
- * ==========================================================
- * PAYMENT GUARD
- * ==========================================================
- */
-
-function isPaymentStatus(
-  value: unknown,
-): value is PrintingOrder["paymentStatus"] {
-
-  return [
-    "unpaid",
-    "pending",
-    "paid",
-    "failed",
-    "refunded",
-  ].includes(
-    String(
-      value,
-    ),
-  );
-}
-
-
-/*
- * ==========================================================
  * SAFE NUMBER
  * ==========================================================
  */
@@ -1943,80 +1560,6 @@ function isPaymentStatus(
 function safeNumber(
   value: unknown,
 ): number {
-
-  const numeric =
-    Number(
-      value,
-    );
-
-
-  return Number.isFinite(
-    numeric,
-  )
-    ? numeric
-    : 0;
-}
-
-
-/*
- * ==========================================================
- * FIRESTORE ERROR
- * ==========================================================
- */
-
-function getFirestoreErrorMessage(
-  error: unknown,
-): string {
-
-  if (
-    error &&
-    typeof error ===
-      "object" &&
-    "code" in error
-  ) {
-
-    const code =
-      String(
-        (
-          error as {
-            code?: unknown;
-          }
-        ).code ??
-          "",
-      );
-
-
-    switch (
-      code
-    ) {
-
-      case "permission-denied":
-
-        return "You do not have permission to view your printing requests.";
-
-      case "unavailable":
-
-        return "The printing service is temporarily unavailable.";
-
-      case "failed-precondition":
-
-        return "The printing request database needs additional configuration.";
-
-      default:
-        break;
-    }
-  }
-
-
-  if (
-    error instanceof
-      Error &&
-    error.message.trim()
-  ) {
-
-    return error.message;
-  }
-
-
-  return "Unable to load your printing requests.";
+  const numeric = Number(value);
+  return Number.isFinite(numeric) ? numeric : 0;
 }

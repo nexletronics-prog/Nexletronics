@@ -1,22 +1,12 @@
 import emailjs from "@emailjs/browser";
 
 import {
-  addDoc,
-  collection,
-  deleteDoc,
-  doc,
-  getDoc,
-  getDocs,
-  onSnapshot,
-  orderBy,
-  query,
-  serverTimestamp,
-  updateDoc,
-} from "firebase/firestore";
+  auth,
+} from "../firebase/config";
 
 import {
-  db,
-} from "../firebase/config";
+  supabase,
+} from "../lib/supabase";
 
 import type {
   ContactData,
@@ -45,6 +35,8 @@ export type ContactStatus =
 export interface ContactMessage {
   id: string;
 
+  firebaseUid?: string;
+
   name: string;
 
   email: string;
@@ -69,56 +61,236 @@ export interface ContactMessage {
 
 /*
  * ==========================================================
+ * SUPABASE ROW
+ * ==========================================================
+ */
+
+interface ContactRow {
+  id: string;
+
+  firebase_uid: string;
+
+  name: string;
+
+  email: string;
+
+  phone: string;
+
+  message: string;
+
+  status: ContactStatus;
+
+  admin_reply: string;
+
+  replied_at: string | null;
+
+  replied_by: string | null;
+
+  created_at: string;
+
+  updated_at: string;
+}
+
+
+/*
+ * ==========================================================
  * EMAILJS CONFIG
  * ==========================================================
- *
- * These values come from .env
- *
- * VITE_EMAILJS_SERVICE_ID
- * VITE_EMAILJS_TEMPLATE_ID
- * VITE_EMAILJS_PUBLIC_KEY
  */
 
 const EMAILJS_SERVICE_ID =
   String(
-    import.meta.env.VITE_EMAILJS_SERVICE_ID ?? "",
+    import.meta.env.VITE_EMAILJS_SERVICE_ID ??
+      "",
   ).trim();
 
 
 const EMAILJS_TEMPLATE_ID =
   String(
-    import.meta.env.VITE_EMAILJS_TEMPLATE_ID ?? "",
+    import.meta.env.VITE_EMAILJS_TEMPLATE_ID ??
+      "",
   ).trim();
 
 
 const EMAILJS_PUBLIC_KEY =
   String(
-    import.meta.env.VITE_EMAILJS_PUBLIC_KEY ?? "",
+    import.meta.env.VITE_EMAILJS_PUBLIC_KEY ??
+      "",
   ).trim();
 
 
 /*
  * ==========================================================
- * FIRESTORE COLLECTION
+ * SELECT COLUMNS
  * ==========================================================
  */
 
-const contactsCollection =
-  collection(
-    db,
-    "contacts",
+const CONTACT_COLUMNS = `
+  id,
+  firebase_uid,
+  name,
+  email,
+  phone,
+  message,
+  status,
+  admin_reply,
+  replied_at,
+  replied_by,
+  created_at,
+  updated_at
+`;
+
+
+/*
+ * ==========================================================
+ * ERROR HELPER
+ * ==========================================================
+ */
+
+function getErrorMessage(
+  error: unknown,
+  fallback: string,
+): string {
+  if (
+    error instanceof Error &&
+    error.message.trim()
+  ) {
+    return error.message;
+  }
+
+
+  return fallback;
+}
+
+
+/*
+ * ==========================================================
+ * STATUS VALIDATOR
+ * ==========================================================
+ */
+
+function isContactStatus(
+  value: unknown,
+): value is ContactStatus {
+  return (
+    value === "new" ||
+    value === "read" ||
+    value === "replied" ||
+    value === "archived"
   );
+}
+
+
+/*
+ * ==========================================================
+ * MAP SUPABASE ROW
+ * ==========================================================
+ */
+
+function mapContactMessage(
+  row: ContactRow,
+): ContactMessage {
+  return {
+    id:
+      row.id,
+
+    firebaseUid:
+      row.firebase_uid,
+
+    name:
+      typeof row.name === "string"
+        ? row.name
+        : "",
+
+    email:
+      typeof row.email === "string"
+        ? row.email
+        : "",
+
+    phone:
+      typeof row.phone === "string"
+        ? row.phone
+        : "",
+
+    message:
+      typeof row.message === "string"
+        ? row.message
+        : "",
+
+    status:
+      isContactStatus(
+        row.status,
+      )
+        ? row.status
+        : "new",
+
+    createdAt:
+      row.created_at ??
+      null,
+
+    updatedAt:
+      row.updated_at ??
+      null,
+
+    repliedAt:
+      row.replied_at ??
+      null,
+
+    adminReply:
+      typeof row.admin_reply ===
+        "string"
+        ? row.admin_reply
+        : "",
+
+    repliedBy:
+      typeof row.replied_by ===
+        "string"
+        ? row.replied_by
+        : undefined,
+  };
+}
+
+
+/*
+ * ==========================================================
+ * REQUIRE FIREBASE USER
+ * ==========================================================
+ */
+
+function requireFirebaseUser() {
+  const user =
+    auth.currentUser;
+
+
+  if (!user) {
+    throw new Error(
+      "Please log in to continue.",
+    );
+  }
+
+
+  return user;
+}
 
 
 /*
  * ==========================================================
  * SAVE CUSTOMER ENQUIRY
  * ==========================================================
+ *
+ * Firebase:
+ *   identity
+ *
+ * Supabase:
+ *   application data
  */
 
 export async function saveContact(
   data: ContactData,
 ) {
+  const user =
+    requireFirebaseUser();
+
 
   const name =
     typeof data.name === "string"
@@ -165,33 +337,75 @@ export async function saveContact(
   }
 
 
-  return addDoc(
-    contactsCollection,
-    {
-      name,
+  const contactId =
+    crypto.randomUUID();
 
-      email,
 
-      phone,
+  const {
+    data: inserted,
+    error,
+  } =
+    await supabase
+      .from(
+        "contacts",
+      )
+      .insert({
+        id:
+          contactId,
 
-      message,
+        firebase_uid:
+          user.uid,
 
-      status:
-        "new",
+        name,
 
-      adminReply:
-        "",
+        email,
 
-      repliedAt:
-        null,
+        phone,
 
-      createdAt:
-        serverTimestamp(),
+        message,
 
-      updatedAt:
-        serverTimestamp(),
-    },
-  );
+        status:
+          "new",
+
+        admin_reply:
+          "",
+
+        replied_at:
+          null,
+
+        replied_by:
+          null,
+
+        created_at:
+          new Date().toISOString(),
+
+        updated_at:
+          new Date().toISOString(),
+      })
+      .select(
+        CONTACT_COLUMNS,
+      )
+      .single();
+
+
+  if (
+    error
+  ) {
+    throw error;
+  }
+
+
+  return {
+    id:
+      contactId,
+
+    data:
+      inserted
+        ? mapContactMessage(
+            inserted as ContactRow,
+          )
+        : null,
+  };
 }
 
 
@@ -200,38 +414,46 @@ export async function saveContact(
  * GET CONTACT MESSAGES
  * ==========================================================
  *
- * Kept for compatibility with older code.
+ * Admin:
+ *   receives all contacts through RLS.
+ *
+ * Customer:
+ *   receives only own contacts.
  */
 
-export async function getContactMessages(): Promise<
-  ContactMessage[]
-> {
+export async function getContactMessages():
+  Promise<ContactMessage[]> {
+  const {
+    data,
+    error,
+  } =
+    await supabase
+      .from(
+        "contacts",
+      )
+      .select(
+        CONTACT_COLUMNS,
+      )
+      .order(
+        "created_at",
+        {
+          ascending:
+            false,
+        },
+      );
 
-  const contactsQuery =
-    query(
-      contactsCollection,
 
-      orderBy(
-        "createdAt",
-        "desc",
-      ),
-    );
+  if (
+    error
+  ) {
+    throw error;
+  }
 
 
-  const snapshot =
-    await getDocs(
-      contactsQuery,
-    );
-
-
-  return snapshot.docs.map(
-    (
-      document,
-    ) =>
-      mapContactMessage(
-        document.id,
-        document.data(),
-      ),
+  return (
+    (data ?? []) as ContactRow[]
+  ).map(
+    mapContactMessage,
   );
 }
 
@@ -250,71 +472,244 @@ export function subscribeContactMessages(
   onError?: (
     error: unknown,
   ) => void,
-) {
+): () => void {
+  let stopped =
+    false;
 
-  const contactsQuery =
-    query(
-      contactsCollection,
 
-      orderBy(
-        "createdAt",
-        "desc",
-      ),
+  let channel:
+    ReturnType<
+      typeof supabase.channel
+    > | null =
+    null;
+
+
+  const messagesMap =
+    new Map<
+      string,
+      ContactMessage
+    >();
+
+
+  function emit() {
+    if (
+      stopped
+    ) {
+      return;
+    }
+
+
+    const messages =
+      Array.from(
+        messagesMap.values(),
+      ).sort(
+        (
+          first,
+          second,
+        ) =>
+          toTime(
+            second.createdAt,
+          ) -
+          toTime(
+            first.createdAt,
+          ),
+      );
+
+
+    callback(
+      messages,
     );
+  }
 
 
-  return onSnapshot(
-    contactsQuery,
+  void (
+    async () => {
+      try {
 
-    (
-      snapshot,
-    ) => {
+        /*
+         * Initial data.
+         */
 
-      const messages =
-        snapshot.docs.map(
-          (
-            document,
-          ) =>
-            mapContactMessage(
-              document.id,
-              document.data(),
-            ),
-        );
+        const initial =
+          await getContactMessages();
 
 
-      callback(
-        messages,
-      );
-    },
-
-    (
-      error,
-    ) => {
-
-      console.error(
-        "Realtime contact listener failed:",
-        error,
-      );
+        if (
+          stopped
+        ) {
+          return;
+        }
 
 
-      if (
-        onError
+        messagesMap.clear();
+
+
+        for (
+          const message of
+            initial
+        ) {
+          messagesMap.set(
+            message.id,
+            message,
+          );
+        }
+
+
+        emit();
+
+
+        /*
+         * Realtime channel.
+         */
+
+        channel =
+          supabase
+            .channel(
+              `nexletronics-contacts-${Date.now()}`,
+            )
+            .on(
+              "postgres_changes",
+              {
+                event:
+                  "*",
+
+                schema:
+                  "public",
+
+                table:
+                  "contacts",
+              },
+              (
+                payload,
+              ) => {
+                if (
+                  stopped
+                ) {
+                  return;
+                }
+
+
+                /*
+                 * DELETE
+                 */
+
+                if (
+                  payload.eventType ===
+                  "DELETE"
+                ) {
+                  const oldRow =
+                    payload.old as {
+                      id?: string;
+                    };
+
+
+                  if (
+                    oldRow.id
+                  ) {
+                    messagesMap.delete(
+                      oldRow.id,
+                    );
+                  }
+
+
+                  emit();
+
+                  return;
+                }
+
+
+                /*
+                 * INSERT / UPDATE
+                 */
+
+                const row =
+                  payload.new as
+                    ContactRow;
+
+
+                if (
+                  !row?.id
+                ) {
+                  return;
+                }
+
+
+                messagesMap.set(
+                  row.id,
+                  mapContactMessage(
+                    row,
+                  ),
+                );
+
+
+                emit();
+              },
+            )
+            .subscribe(
+              (
+                status,
+              ) => {
+
+                if (
+                  status ===
+                    "CHANNEL_ERROR" ||
+                  status ===
+                    "TIMED_OUT"
+                ) {
+                  const error =
+                    new Error(
+                      "Unable to connect to the realtime enquiries database.",
+                    );
+
+
+                  console.error(
+                    error,
+                  );
+
+
+                  onError?.(
+                    error,
+                  );
+                }
+              },
+            );
+
+      } catch (
+        error
       ) {
-
-        onError(
+        console.error(
+          "Supabase contact listener failed:",
           error,
         );
 
-      }
 
-    },
-  );
+        onError?.(
+          error,
+        );
+      }
+    }
+  )();
+
+
+  return () => {
+    stopped =
+      true;
+
+
+    if (
+      channel
+    ) {
+      void supabase.removeChannel(
+        channel,
+      );
+    }
+  };
 }
 
 
 /*
  * ==========================================================
- * UPDATE STATUS
+ * UPDATE CONTACT STATUS
  * ==========================================================
  */
 
@@ -322,35 +717,61 @@ export async function updateContactStatus(
   id: string,
   status: ContactStatus,
 ) {
-
-  if (!id) {
+  if (
+    !id
+  ) {
     throw new Error(
       "Contact ID is required.",
     );
   }
 
 
-  await updateDoc(
-    doc(
-      db,
-      "contacts",
-      id,
-    ),
-
-    {
+  const updates:
+    Record<
+      string,
+      unknown
+    > = {
       status,
 
-      updatedAt:
-        serverTimestamp(),
+      updated_at:
+        new Date().toISOString(),
+    };
 
-      ...(status === "replied"
-        ? {
-            repliedAt:
-              serverTimestamp(),
-          }
-        : {}),
-    },
-  );
+
+  if (
+    status ===
+    "replied"
+  ) {
+    updates.replied_at =
+      new Date().toISOString();
+
+    updates.replied_by =
+      auth.currentUser?.uid ??
+      null;
+  }
+
+
+  const {
+    error,
+  } =
+    await supabase
+      .from(
+        "contacts",
+      )
+      .update(
+        updates,
+      )
+      .eq(
+        "id",
+        id,
+      );
+
+
+  if (
+    error
+  ) {
+    throw error;
+  }
 }
 
 
@@ -358,34 +779,22 @@ export async function updateContactStatus(
  * ==========================================================
  * SEND CUSTOMER REPLY
  * ==========================================================
- *
- * Used by Admin → Enquiries.
- *
- * This sends the actual email through EmailJS and then
- * stores the reply in Firestore.
  */
 
 export async function saveContactReply(
   id: string,
   reply: string,
 ) {
-
   const cleanReply =
     reply.trim();
 
 
-  /*
-   * --------------------------------------------------------
-   * VALIDATION
-   * --------------------------------------------------------
-   */
-
-  if (!cleanReply) {
-
+  if (
+    !cleanReply
+  ) {
     throw new Error(
       "Reply message cannot be empty.",
     );
-
   }
 
 
@@ -394,78 +803,103 @@ export async function saveContactReply(
     !EMAILJS_TEMPLATE_ID ||
     !EMAILJS_PUBLIC_KEY
   ) {
-
     throw new Error(
       "EmailJS is not configured. Check your .env file.",
     );
-
   }
 
 
   /*
-   * --------------------------------------------------------
+   * ========================================================
    * LOAD ENQUIRY
-   * --------------------------------------------------------
+   * ========================================================
+   *
+   * Normal customers cannot read other customers'
+   * enquiries because Supabase RLS blocks them.
+   *
+   * Admin can read the row because of is_admin=true.
    */
 
-  const contactRef =
-    doc(
-      db,
-      "contacts",
-      id,
-    );
-
-
-  const contactSnapshot =
-    await getDoc(
-      contactRef,
-    );
+  const {
+    data: contact,
+    error: contactError,
+  } =
+    await supabase
+      .from(
+        "contacts",
+      )
+      .select(
+        CONTACT_COLUMNS,
+      )
+      .eq(
+        "id",
+        id,
+      )
+      .maybeSingle();
 
 
   if (
-    !contactSnapshot.exists()
+    contactError
   ) {
-
-    throw new Error(
-      "The enquiry could not be found.",
-    );
-
+    throw contactError;
   }
 
 
-  const contact =
-    contactSnapshot.data();
+  if (
+    !contact
+  ) {
+    throw new Error(
+      "The enquiry could not be found.",
+    );
+  }
+
+
+  const message =
+    contact as ContactRow;
 
 
   const customerName =
-    typeof contact.name === "string"
-      ? contact.name.trim()
+    typeof message.name ===
+      "string" &&
+    message.name.trim()
+      ? message.name.trim()
       : "Customer";
 
 
   const customerEmail =
-    typeof contact.email === "string"
-      ? contact.email.trim()
+    typeof message.email ===
+      "string"
+      ? message.email.trim().toLowerCase()
       : "";
 
 
-  if (!customerEmail) {
-
+  if (
+    !customerEmail
+  ) {
     throw new Error(
       "The enquiry does not contain a customer email address.",
     );
+  }
 
+
+  if (
+    !isValidEmail(
+      customerEmail,
+    )
+  ) {
+    throw new Error(
+      "The enquiry contains an invalid customer email address.",
+    );
   }
 
 
   /*
-   * --------------------------------------------------------
+   * ========================================================
    * EMAILJS PARAMETERS
-   * --------------------------------------------------------
+   * ========================================================
    */
 
   const templateParams = {
-
     to_email:
       customerEmail,
 
@@ -489,6 +923,9 @@ export async function saveContactReply(
 
     company_name:
       "Nexletronics",
+
+    subject:
+      "Reply from Nexletronics",
   };
 
 
@@ -508,15 +945,14 @@ export async function saveContactReply(
 
 
   /*
-   * --------------------------------------------------------
+   * ========================================================
    * SEND EMAIL
-   * --------------------------------------------------------
+   * ========================================================
    */
 
   let emailResponse;
 
   try {
-
     emailResponse =
       await emailjs.send(
         EMAILJS_SERVICE_ID,
@@ -534,7 +970,6 @@ export async function saveContactReply(
   } catch (
     error
   ) {
-
     console.error(
       "[EMAILJS] Send failed:",
       error,
@@ -544,63 +979,70 @@ export async function saveContactReply(
     throw new Error(
       "EmailJS could not send the email. Check your EmailJS service, template and account settings.",
     );
-
   }
 
 
   /*
-   * --------------------------------------------------------
-   * VERIFY RESPONSE
-   * --------------------------------------------------------
+   * ========================================================
+   * VERIFY EMAILJS
+   * ========================================================
    */
 
   if (
     emailResponse.status !==
     200
   ) {
-
-    console.error(
-      "[EMAILJS] Unexpected response:",
-      emailResponse,
-    );
-
-
     throw new Error(
       "The email service returned an unexpected response.",
     );
-
   }
 
 
   /*
-   * --------------------------------------------------------
-   * SAVE REPLY
-   * --------------------------------------------------------
-   *
-   * Only after EmailJS succeeds.
+   * ========================================================
+   * SAVE REPLY TO SUPABASE
+   * ========================================================
    */
 
-  await updateDoc(
-    contactRef,
+  const {
+    error: updateError,
+  } =
+    await supabase
+      .from(
+        "contacts",
+      )
+      .update({
+        admin_reply:
+          cleanReply,
 
-    {
-      adminReply:
-        cleanReply,
+        status:
+          "replied",
 
-      status:
-        "replied",
+        replied_at:
+          new Date().toISOString(),
 
-      repliedAt:
-        serverTimestamp(),
+        replied_by:
+          auth.currentUser?.uid ??
+          null,
 
-      updatedAt:
-        serverTimestamp(),
-    },
-  );
+        updated_at:
+          new Date().toISOString(),
+      })
+      .eq(
+        "id",
+        id,
+      );
+
+
+  if (
+    updateError
+  ) {
+    throw updateError;
+  }
 
 
   console.log(
-    "[EMAILJS] Reply sent successfully",
+    "[EMAILJS] Reply saved successfully",
     {
       contactId:
         id,
@@ -612,7 +1054,6 @@ export async function saveContactReply(
 
 
   return {
-
     success:
       true,
 
@@ -629,14 +1070,9 @@ export async function saveContactReply(
  * SEND EMAIL TO CUSTOMER
  * ==========================================================
  *
- * Used by:
+ * Used by CustomerManager.
  *
- *     Admin → Customers
- *
- * This sends a standalone email to one customer.
- *
- * Multiple selected customers can call this function one by
- * one from CustomerManager.
+ * This does not create a contact/enquiry record.
  */
 
 export async function sendCustomerEmail(
@@ -645,13 +1081,6 @@ export async function sendCustomerEmail(
   subject: string,
   message: string,
 ) {
-
-  /*
-   * --------------------------------------------------------
-   * CLEAN INPUT
-   * --------------------------------------------------------
-   */
-
   const cleanEmail =
     customerEmail
       .trim()
@@ -671,18 +1100,12 @@ export async function sendCustomerEmail(
     message.trim();
 
 
-  /*
-   * --------------------------------------------------------
-   * VALIDATION
-   * --------------------------------------------------------
-   */
-
-  if (!cleanEmail) {
-
+  if (
+    !cleanEmail
+  ) {
     throw new Error(
       "Customer email address is required.",
     );
-
   }
 
 
@@ -691,29 +1114,27 @@ export async function sendCustomerEmail(
       cleanEmail,
     )
   ) {
-
     throw new Error(
       "Please provide a valid customer email address.",
     );
-
   }
 
 
-  if (!cleanSubject) {
-
+  if (
+    !cleanSubject
+  ) {
     throw new Error(
       "Email subject cannot be empty.",
     );
-
   }
 
 
-  if (!cleanMessage) {
-
+  if (
+    !cleanMessage
+  ) {
     throw new Error(
       "Email message cannot be empty.",
     );
-
   }
 
 
@@ -722,27 +1143,13 @@ export async function sendCustomerEmail(
     !EMAILJS_TEMPLATE_ID ||
     !EMAILJS_PUBLIC_KEY
   ) {
-
     throw new Error(
       "EmailJS is not configured. Check your .env file.",
     );
-
   }
 
 
-  /*
-   * --------------------------------------------------------
-   * EMAILJS PARAMETERS
-   * --------------------------------------------------------
-   *
-   * We deliberately keep the existing variable names as
-   * well as subject-specific variables.
-   *
-   * This gives compatibility with your current template.
-   */
-
   const templateParams = {
-
     to_email:
       cleanEmail,
 
@@ -775,12 +1182,6 @@ export async function sendCustomerEmail(
   console.log(
     "[EMAILJS] Sending customer email",
     {
-      serviceId:
-        EMAILJS_SERVICE_ID,
-
-      templateId:
-        EMAILJS_TEMPLATE_ID,
-
       recipient:
         cleanEmail,
 
@@ -790,16 +1191,9 @@ export async function sendCustomerEmail(
   );
 
 
-  /*
-   * --------------------------------------------------------
-   * SEND EMAIL
-   * --------------------------------------------------------
-   */
-
   let emailResponse;
 
   try {
-
     emailResponse =
       await emailjs.send(
         EMAILJS_SERVICE_ID,
@@ -817,69 +1211,32 @@ export async function sendCustomerEmail(
   } catch (
     error
   ) {
-
     console.error(
       "[EMAILJS] Customer email failed:",
       error,
     );
 
 
-    if (
-      error instanceof Error
-    ) {
-
-      throw new Error(
-        error.message,
-      );
-
-    }
-
-
     throw new Error(
-      "Unable to send customer email.",
+      getErrorMessage(
+        error,
+        "Unable to send customer email.",
+      ),
     );
-
   }
 
-
-  /*
-   * --------------------------------------------------------
-   * VERIFY RESPONSE
-   * --------------------------------------------------------
-   */
 
   if (
     emailResponse.status !==
     200
   ) {
-
-    console.error(
-      "[EMAILJS] Unexpected customer email response:",
-      emailResponse,
-    );
-
-
     throw new Error(
       "The email service returned an unexpected response.",
     );
-
   }
 
 
-  console.log(
-    "[EMAILJS] Customer email sent successfully",
-    {
-      recipient:
-        cleanEmail,
-
-      subject:
-        cleanSubject,
-    },
-  );
-
-
   return {
-
     success:
       true,
 
@@ -904,119 +1261,80 @@ export async function sendCustomerEmail(
 export async function deleteContactMessage(
   id: string,
 ) {
-
-  if (!id) {
-
+  if (
+    !id
+  ) {
     throw new Error(
       "Contact ID is required.",
     );
-
   }
 
 
-  await deleteDoc(
-    doc(
-      db,
-      "contacts",
-      id,
-    ),
-  );
-}
-
-
-/*
- * ==========================================================
- * MAP FIRESTORE DATA
- * ==========================================================
- */
-
-function mapContactMessage(
-  id: string,
-  data: Record<
-    string,
-    unknown
-  >,
-): ContactMessage {
-
-  return {
-
-    id,
-
-    name:
-      typeof data.name ===
-        "string"
-        ? data.name
-        : "",
-
-    email:
-      typeof data.email ===
-        "string"
-        ? data.email
-        : "",
-
-    phone:
-      typeof data.phone ===
-        "string"
-        ? data.phone
-        : "",
-
-    message:
-      typeof data.message ===
-        "string"
-        ? data.message
-        : "",
-
-    status:
-      isContactStatus(
-        data.status,
+  const {
+    error,
+  } =
+    await supabase
+      .from(
+        "contacts",
       )
-        ? data.status
-        : "new",
+      .delete()
+      .eq(
+        "id",
+        id,
+      );
 
-    createdAt:
-      data.createdAt ??
-      null,
 
-    updatedAt:
-      data.updatedAt ??
-      null,
-
-    repliedAt:
-      data.repliedAt ??
-      null,
-
-    adminReply:
-      typeof data.adminReply ===
-        "string"
-        ? data.adminReply
-        : "",
-
-    repliedBy:
-      typeof data.repliedBy ===
-        "string"
-        ? data.repliedBy
-        : undefined,
-
-  };
+  if (
+    error
+  ) {
+    throw error;
+  }
 }
 
 
 /*
  * ==========================================================
- * STATUS VALIDATOR
+ * TIME
  * ==========================================================
  */
 
-function isContactStatus(
+function toTime(
   value: unknown,
-): value is ContactStatus {
+): number {
+  if (
+    value instanceof Date
+  ) {
+    return value.getTime();
+  }
 
-  return (
-    value === "new" ||
-    value === "read" ||
-    value === "replied" ||
-    value === "archived"
-  );
+
+  if (
+    typeof value ===
+    "string"
+  ) {
+    const parsed =
+      Date.parse(
+        value,
+      );
+
+
+    return Number.isNaN(
+      parsed,
+    )
+      ? 0
+      : parsed;
+  }
+
+
+  if (
+    typeof value ===
+    "number"
+  ) {
+    return value;
+  }
+
+
+  return 0;
 }
 
 
@@ -1029,7 +1347,6 @@ function isContactStatus(
 function isValidEmail(
   email: string,
 ): boolean {
-
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(
     email,
   );

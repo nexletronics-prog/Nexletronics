@@ -6,7 +6,7 @@ import {
 
 import {
   getProducts,
-} from "../services/firestore/products";
+} from "../services/product.service";
 
 import {
   products as localProducts,
@@ -16,111 +16,142 @@ import type {
   Product,
 } from "../types/product";
 
+
 interface UseProductsResult {
   products: Product[];
+
   loading: boolean;
+
   error: string | null;
+
   usingFallback: boolean;
+
   refresh: () => Promise<void>;
 }
 
-export function useProducts(): UseProductsResult {
+
+export function useProducts():
+  UseProductsResult {
+
   const [
     products,
     setProducts,
-  ] = useState<Product[]>(
-    localProducts,
-  );
+  ] =
+    useState<Product[]>(
+      localProducts,
+    );
+
 
   const [
     loading,
     setLoading,
-  ] = useState(true);
+  ] =
+    useState(true);
+
 
   const [
     error,
     setError,
-  ] = useState<string | null>(
-    null,
-  );
+  ] =
+    useState<string | null>(
+      null,
+    );
+
 
   const [
     usingFallback,
     setUsingFallback,
-  ] = useState(false);
+  ] =
+    useState(false);
+
 
   const loadProducts =
-    useCallback(async () => {
-      setLoading(true);
-      setError(null);
+    useCallback(
+      async () => {
+        setLoading(true);
+        setError(null);
 
-      try {
-        const firestoreProducts =
-          await getProducts();
 
-        /*
-         * If Firestore contains products,
-         * use those products.
-         */
+        try {
+          const supabaseProducts =
+            await getProducts();
 
-        if (
-          firestoreProducts.length > 0
-        ) {
+
+          if (
+            supabaseProducts.length >
+            0
+          ) {
+            setProducts(
+              supabaseProducts,
+            );
+
+            setUsingFallback(
+              false,
+            );
+
+            return;
+          }
+
+
+          /*
+           * Keep the existing local fallback so the
+           * website remains usable when Supabase has
+           * no products yet.
+           */
+
           setProducts(
-            firestoreProducts,
+            localProducts,
           );
 
-          setUsingFallback(false);
+          setUsingFallback(
+            true,
+          );
+        } catch (
+          err
+        ) {
+          console.error(
+            "Failed to load Supabase products:",
+            err,
+          );
 
-          return;
+
+          setProducts(
+            localProducts,
+          );
+
+          setUsingFallback(
+            true,
+          );
+
+
+          setError(
+            "Unable to load products from Supabase. Showing available products instead.",
+          );
+        } finally {
+          setLoading(false);
         }
+      },
+      [],
+    );
 
-        /*
-         * Firestore is empty.
-         *
-         * Keep using the local products so
-         * the website remains functional.
-         */
-
-        setProducts(
-          localProducts,
-        );
-
-        setUsingFallback(true);
-      } catch (err) {
-        console.error(
-          "Failed to load Firestore products:",
-          err,
-        );
-
-        /*
-         * Keep the website usable if Firebase
-         * is temporarily unavailable.
-         */
-
-        setProducts(
-          localProducts,
-        );
-
-        setUsingFallback(true);
-
-        setError(
-          "Unable to load products from Firebase. Showing available products instead.",
-        );
-      } finally {
-        setLoading(false);
-      }
-    }, []);
 
   useEffect(() => {
     void loadProducts();
-  }, [loadProducts]);
+  }, [
+    loadProducts,
+  ]);
+
 
   return {
     products,
+
     loading,
+
     error,
+
     usingFallback,
-    refresh: loadProducts,
+
+    refresh:
+      loadProducts,
   };
 }

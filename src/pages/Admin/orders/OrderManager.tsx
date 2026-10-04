@@ -13,13 +13,9 @@ import {
 } from "react";
 
 import {
+  subscribeToOrders,
   updateOrderStatus,
 } from "../../../services/order.service";
-
-import {
-  subscribeToCollection,
-  type RealtimeDocument,
-} from "../../../services/realtime.service";
 
 import type {
   Order,
@@ -66,7 +62,7 @@ const statusOptions: Array<{
 
 /*
  * ==========================================================
- * STATUS COLORS
+ * STATUS STYLE
  * ==========================================================
  */
 
@@ -132,7 +128,11 @@ function formatPrice(
       maximumFractionDigits: 0,
     },
   ).format(
-    amount,
+    Number.isFinite(
+      amount,
+    )
+      ? amount
+      : 0,
   );
 }
 
@@ -146,31 +146,41 @@ function formatPrice(
 function formatDate(
   value: unknown,
 ): string {
-
   if (!value) {
     return "—";
   }
 
 
   try {
+    if (
+      value instanceof Date
+    ) {
+      return value.toLocaleString(
+        "en-IN",
+        {
+          dateStyle: "medium",
+          timeStyle: "short",
+        },
+      );
+    }
+
 
     if (
-      typeof value === "object" &&
-      value !== null &&
-      "toDate" in value &&
-      typeof (
-        value as {
-          toDate?: unknown;
-        }
-      ).toDate === "function"
+      typeof value === "string"
     ) {
-
       const date =
-        (
-          value as {
-            toDate: () => Date;
-          }
-        ).toDate();
+        new Date(
+          value,
+        );
+
+
+      if (
+        Number.isNaN(
+          date.getTime(),
+        )
+      ) {
+        return "—";
+      }
 
 
       return date.toLocaleString(
@@ -183,32 +193,35 @@ function formatDate(
     }
 
 
-    const date =
-      new Date(
-        value as
-          | string
-          | number
-          | Date,
-      );
-
-
     if (
-      Number.isNaN(
-        date.getTime(),
-      )
+      typeof value === "number"
     ) {
-      return "—";
+      const date =
+        new Date(
+          value,
+        );
+
+
+      if (
+        Number.isNaN(
+          date.getTime(),
+        )
+      ) {
+        return "—";
+      }
+
+
+      return date.toLocaleString(
+        "en-IN",
+        {
+          dateStyle: "medium",
+          timeStyle: "short",
+        },
+      );
     }
 
 
-    return date.toLocaleString(
-      "en-IN",
-      {
-        dateStyle: "medium",
-        timeStyle: "short",
-      },
-    );
-
+    return "—";
   } catch {
     return "—";
   }
@@ -217,177 +230,35 @@ function formatDate(
 
 /*
  * ==========================================================
- * ORDER NORMALIZER
+ * SAFE CUSTOMER NAME
  * ==========================================================
  */
 
-function normalizeOrder(
-  id: string,
-  data: Partial<Order>,
-): Order {
-
-  return {
-    id,
-
-    userId:
-      data.userId ??
-      "",
-
-    userEmail:
-      data.userEmail ??
-      "",
-
-    status:
-      data.status ??
-      "pending",
-
-    currency:
-      data.currency ??
-      "INR",
-
-    items:
-      Array.isArray(
-        data.items,
-      )
-        ? data.items
-        : [],
-
-    subtotal:
-      typeof data.subtotal ===
-      "number"
-        ? data.subtotal
-        : 0,
-
-    shipping:
-      typeof data.shipping ===
-      "number"
-        ? data.shipping
-        : 0,
-
-    total:
-      typeof data.total ===
-      "number"
-        ? data.total
-        : 0,
-
-    shippingAddress:
-      data.shippingAddress ?? {
-        name: "",
-        phone: "",
-        email: "",
-        address: "",
-        city: "",
-        state: "",
-        pincode: "",
-      },
-
-    paymentStatus:
-      data.paymentStatus ??
-      "pending",
-
-    paymentMethod:
-      data.paymentMethod ??
-      "",
-
-    createdAt:
-      data.createdAt,
-
-    updatedAt:
-      data.updatedAt,
-  };
+function getCustomerName(
+  order: Order,
+): string {
+  return (
+    order.shippingAddress?.name ||
+    order.customer?.name ||
+    "Customer"
+  );
 }
 
 
 /*
  * ==========================================================
- * TIMESTAMP SORT
+ * SAFE CUSTOMER PHONE
  * ==========================================================
  */
 
-function getTimeValue(
-  value: unknown,
-): number {
-
-  if (
-    value &&
-    typeof value ===
-      "object"
-  ) {
-
-    if (
-      "toMillis" in value &&
-      typeof (
-        value as {
-          toMillis?: unknown;
-        }
-      ).toMillis ===
-        "function"
-    ) {
-
-      return Number(
-        (
-          value as {
-            toMillis: () => number;
-          }
-        ).toMillis(),
-      );
-    }
-
-
-    if (
-      "seconds" in value
-    ) {
-
-      return (
-        Number(
-          (
-            value as {
-              seconds?: unknown;
-            }
-          ).seconds ?? 0,
-        ) * 1000
-      );
-    }
-  }
-
-
-  if (
-    value instanceof Date
-  ) {
-
-    return value.getTime();
-  }
-
-
-  if (
-    typeof value ===
-    "string"
-  ) {
-
-    const parsed =
-      Date.parse(
-        value,
-      );
-
-
-    return Number.isNaN(
-      parsed,
-    )
-      ? 0
-      : parsed;
-  }
-
-
-  if (
-    typeof value ===
-    "number"
-  ) {
-
-    return value;
-  }
-
-
-  return 0;
+function getCustomerPhone(
+  order: Order,
+): string {
+  return (
+    order.shippingAddress?.phone ||
+    order.customer?.phone ||
+    "—"
+  );
 }
 
 
@@ -416,7 +287,6 @@ function OrderDetailsModal({
   onStatusChange,
   updating,
 }: OrderDetailsModalProps) {
-
   return (
     <div
       className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 px-4 py-6 backdrop-blur-sm"
@@ -424,7 +294,6 @@ function OrderDetailsModal({
       aria-modal="true"
       aria-label="Order details"
     >
-
       <div className="flex max-h-[90vh] w-full max-w-3xl flex-col overflow-hidden rounded-3xl bg-white shadow-2xl">
 
         {/* HEADER */}
@@ -432,7 +301,6 @@ function OrderDetailsModal({
         <div className="flex shrink-0 items-center justify-between border-b border-neutral-200 px-6 py-5">
 
           <div>
-
             <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-[#D4AF37]">
               Order Details
             </p>
@@ -441,12 +309,10 @@ function OrderDetailsModal({
               #
               {order.id.slice(
                 0,
-                10,
+                12,
               )}
             </h2>
-
           </div>
-
 
           <button
             type="button"
@@ -470,16 +336,14 @@ function OrderDetailsModal({
 
           {/* STATUS */}
 
-          <div className="rounded-2xl bg-neutral-50 p-5">
+          <section className="rounded-2xl bg-neutral-50 p-5">
 
             <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
 
               <div>
-
                 <p className="text-xs font-bold uppercase tracking-wider text-neutral-400">
                   Order Status
                 </p>
-
 
                 <span
                   className={[
@@ -493,24 +357,21 @@ function OrderDetailsModal({
                     order.status,
                   )}
                 </span>
-
               </div>
 
 
               <div>
-
                 <label
-                  htmlFor="order-status"
+                  htmlFor="order-details-status"
                   className="mb-2 block text-xs font-bold text-neutral-500"
                 >
                   Change status
                 </label>
 
-
                 <div className="relative">
 
                   <select
-                    id="order-status"
+                    id="order-details-status"
                     value={
                       order.status
                     }
@@ -527,7 +388,6 @@ function OrderDetailsModal({
                     }
                     className="appearance-none rounded-xl border border-neutral-200 bg-white py-2.5 pl-4 pr-10 text-sm font-semibold outline-none focus:border-[#D4AF37] disabled:opacity-50"
                   >
-
                     {statusOptions.map(
                       (
                         option,
@@ -546,22 +406,19 @@ function OrderDetailsModal({
                         </option>
                       ),
                     )}
-
                   </select>
 
-
                   <ChevronDown
-                    className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-neutral-400"
                     size={15}
+                    className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-neutral-400"
                   />
 
                 </div>
-
               </div>
 
             </div>
 
-          </div>
+          </section>
 
 
           {/* CUSTOMER + DELIVERY */}
@@ -574,18 +431,17 @@ function OrderDetailsModal({
                 Customer
               </h3>
 
-
               <div className="mt-4 space-y-2 text-sm">
 
                 <p>
                   <span className="text-neutral-400">
                     Name:
                   </span>{" "}
-
                   <span className="font-semibold">
                     {
-                      order.shippingAddress
-                        .name
+                      getCustomerName(
+                        order,
+                      )
                     }
                   </span>
                 </p>
@@ -595,10 +451,11 @@ function OrderDetailsModal({
                   <span className="text-neutral-400">
                     Email:
                   </span>{" "}
-
                   <span className="break-all font-semibold">
                     {
-                      order.userEmail
+                      order.userEmail ||
+                      order.customer?.email ||
+                      "—"
                     }
                   </span>
                 </p>
@@ -608,11 +465,11 @@ function OrderDetailsModal({
                   <span className="text-neutral-400">
                     Phone:
                   </span>{" "}
-
                   <span className="font-semibold">
                     {
-                      order.shippingAddress
-                        .phone
+                      getCustomerPhone(
+                        order,
+                      )
                     }
                   </span>
                 </p>
@@ -628,39 +485,39 @@ function OrderDetailsModal({
                 Delivery Address
               </h3>
 
-
               <p className="mt-4 text-sm leading-6 text-neutral-600">
 
                 {
-                  order.shippingAddress
-                    .name
+                  getCustomerName(
+                    order,
+                  )
                 }
 
                 <br />
 
                 {
-                  order.shippingAddress
-                    .address
+                  order.shippingAddress?.address ||
+                  "—"
                 }
 
                 <br />
 
                 {
-                  order.shippingAddress
-                    .city
+                  order.shippingAddress?.city ||
+                  "—"
                 }
                 ,{" "}
                 {
-                  order.shippingAddress
-                    .state
+                  order.shippingAddress?.state ||
+                  "—"
                 }
 
                 <br />
 
                 PIN:{" "}
                 {
-                  order.shippingAddress
-                    .pincode
+                  order.shippingAddress?.pincode ||
+                  "—"
                 }
 
               </p>
@@ -670,7 +527,7 @@ function OrderDetailsModal({
           </div>
 
 
-          {/* ORDER ITEMS */}
+          {/* ITEMS */}
 
           <section className="mt-6 rounded-2xl border border-neutral-200">
 
@@ -685,83 +542,88 @@ function OrderDetailsModal({
 
             <div className="divide-y divide-neutral-100">
 
-              {order.items.map(
-                (
-                  item,
-                  index,
-                ) => (
+              {order.items.length ===
+              0 ? (
 
-                  <div
-                    key={`${item.productId}-${index}`}
-                    className="flex gap-4 px-5 py-4"
-                  >
+                <div className="px-5 py-8 text-center text-sm text-neutral-400">
+                  No order items found.
+                </div>
 
-                    <div className="flex h-14 w-14 shrink-0 items-center justify-center overflow-hidden rounded-xl bg-[#faf8f0]">
+              ) : (
 
-                      {item.image ? (
+                order.items.map(
+                  (
+                    item,
+                    index,
+                  ) => (
+                    <div
+                      key={`${item.productId}-${index}`}
+                      className="flex gap-4 px-5 py-4"
+                    >
 
-                        <img
-                          src={
-                            item.image
-                          }
-                          alt={
+                      <div className="flex h-14 w-14 shrink-0 items-center justify-center overflow-hidden rounded-xl bg-[#faf8f0]">
+
+                        {item.image ? (
+                          <img
+                            src={
+                              item.image
+                            }
+                            alt={
+                              item.name
+                            }
+                            className="h-full w-full object-contain p-2"
+                          />
+                        ) : (
+                          <Package
+                            size={20}
+                            className="text-[#D4AF37]"
+                          />
+                        )}
+
+                      </div>
+
+
+                      <div className="min-w-0 flex-1">
+
+                        <p className="font-bold text-neutral-900">
+                          {
                             item.name
                           }
-                          className="h-full w-full object-contain p-2"
-                        />
-
-                      ) : (
-
-                        <Package
-                          className="text-[#D4AF37]"
-                          size={20}
-                        />
-
-                      )}
-
-                    </div>
+                        </p>
 
 
-                    <div className="min-w-0 flex-1">
+                        {item.sku && (
+                          <p className="mt-1 text-xs text-neutral-400">
+                            SKU:{" "}
+                            {
+                              item.sku
+                            }
+                          </p>
+                        )}
 
-                      <p className="font-bold text-neutral-900">
-                        {
-                          item.name
-                        }
-                      </p>
 
-
-                      {item.sku && (
-                        <p className="mt-1 text-xs text-neutral-400">
-                          SKU:{" "}
+                        <p className="mt-1 text-xs text-neutral-500">
+                          Quantity:{" "}
                           {
-                            item.sku
+                            item.quantity
                           }
                         </p>
-                      )}
+
+                      </div>
 
 
-                      <p className="mt-1 text-xs text-neutral-500">
-                        Quantity:{" "}
-                        {
-                          item.quantity
-                        }
+                      <p className="shrink-0 font-bold text-neutral-900">
+                        {formatPrice(
+                          item.price *
+                            item.quantity,
+                          order.currency,
+                        )}
                       </p>
 
                     </div>
+                  ),
+                )
 
-
-                    <p className="shrink-0 font-bold text-neutral-900">
-                      {formatPrice(
-                        item.price *
-                          item.quantity,
-                        order.currency,
-                      )}
-                    </p>
-
-                  </div>
-
-                ),
               )}
 
             </div>
@@ -776,7 +638,6 @@ function OrderDetailsModal({
             <div className="space-y-3 text-sm">
 
               <div className="flex justify-between">
-
                 <span className="text-neutral-400">
                   Subtotal
                 </span>
@@ -787,27 +648,67 @@ function OrderDetailsModal({
                     order.currency,
                   )}
                 </span>
-
               </div>
 
 
               <div className="flex justify-between">
-
                 <span className="text-neutral-400">
                   Shipping
                 </span>
 
                 <span className="font-semibold">
-                  {order.shipping ===
-                  0
-                    ? "FREE"
-                    : formatPrice(
-                        order.shipping,
-                        order.currency,
-                      )}
+                  {
+                    order.shipping ===
+                    0
+                      ? "FREE"
+                      : formatPrice(
+                          order.shipping,
+                          order.currency,
+                        )
+                  }
                 </span>
-
               </div>
+
+
+              {(
+                order.tax ??
+                0
+              ) > 0 && (
+                <div className="flex justify-between">
+                  <span className="text-neutral-400">
+                    Tax
+                  </span>
+
+                  <span className="font-semibold">
+                    {formatPrice(
+                      order.tax ??
+                        0,
+                      order.currency,
+                    )}
+                  </span>
+                </div>
+              )}
+
+
+              {(
+                order.discount ??
+                0
+              ) > 0 && (
+                <div className="flex justify-between">
+                  <span className="text-neutral-400">
+                    Discount
+                  </span>
+
+                  <span className="font-semibold">
+                    -
+                    {formatPrice(
+                      order.discount ??
+                        0,
+                      order.currency,
+                    )}
+                  </span>
+                </div>
+              )}
 
 
               <div className="mt-4 flex justify-between border-t border-white/10 pt-4">
@@ -830,26 +731,53 @@ function OrderDetailsModal({
           </section>
 
 
-          {/* METADATA */}
+          {/* PAYMENT */}
 
-          <div className="mt-6 grid gap-4 text-xs text-neutral-500 sm:grid-cols-3">
+          <section className="mt-6 grid gap-4 text-sm sm:grid-cols-2">
 
-            <div>
-              <span className="font-bold">
-                Payment:
-              </span>{" "}
-              {
-                order.paymentStatus
-              }
+            <div className="rounded-2xl border border-neutral-200 p-5">
+
+              <p className="text-xs font-bold uppercase tracking-wider text-neutral-400">
+                Payment Status
+              </p>
+
+              <p className="mt-2 font-bold capitalize text-neutral-950">
+                {
+                  order.paymentStatus
+                }
+              </p>
+
             </div>
 
 
+            <div className="rounded-2xl border border-neutral-200 p-5">
+
+              <p className="text-xs font-bold uppercase tracking-wider text-neutral-400">
+                Payment Method
+              </p>
+
+              <p className="mt-2 font-bold capitalize text-neutral-950">
+                {
+                  order.paymentMethod ||
+                  "—"
+                }
+              </p>
+
+            </div>
+
+          </section>
+
+
+          {/* METADATA */}
+
+          <div className="mt-6 grid gap-4 text-xs text-neutral-500 sm:grid-cols-2">
+
             <div>
               <span className="font-bold">
-                Method:
+                Order ID:
               </span>{" "}
               {
-                order.paymentMethod
+                order.id
               }
             </div>
 
@@ -863,12 +791,35 @@ function OrderDetailsModal({
               )}
             </div>
 
+
+            {order.razorpayOrderId && (
+              <div className="break-all">
+                <span className="font-bold">
+                  Razorpay Order:
+                </span>{" "}
+                {
+                  order.razorpayOrderId
+                }
+              </div>
+            )}
+
+
+            {order.razorpayPaymentId && (
+              <div className="break-all">
+                <span className="font-bold">
+                  Razorpay Payment:
+                </span>{" "}
+                {
+                  order.razorpayPaymentId
+                }
+              </div>
+            )}
+
           </div>
 
         </div>
 
       </div>
-
     </div>
   );
 }
@@ -881,7 +832,6 @@ function OrderDetailsModal({
  */
 
 export default function OrderManager() {
-
   const [
     orders,
     setOrders,
@@ -935,71 +885,30 @@ export default function OrderManager() {
 
   /*
    * ========================================================
-   * REALTIME ORDERS
+   * SUPABASE REALTIME ORDERS
    * ========================================================
    */
 
   useEffect(() => {
+    setLoading(true);
 
-    setLoading(
-      true,
-    );
-
-    setError(
-      "",
-    );
+    setError("");
 
 
     const unsubscribe =
-      subscribeToCollection<Partial<Order>>(
-        "orders",
-
+      subscribeToOrders(
         (
-          items: RealtimeDocument<
-            Partial<Order>
-          >[],
+          nextOrders,
         ) => {
-
-          const nextOrders =
-            items.map(
-              (
-                item,
-              ) =>
-                normalizeOrder(
-                  item.id,
-                  item.data,
-                ),
-            );
-
-
-          nextOrders.sort(
-            (
-              first,
-              second,
-            ) =>
-              getTimeValue(
-                second.createdAt,
-              ) -
-              getTimeValue(
-                first.createdAt,
-              ),
-          );
-
-
           setOrders(
             nextOrders,
           );
 
 
-          /*
-           * Keep an opened details modal synchronized.
-           */
-
           setSelectedOrder(
             (
               current,
             ) => {
-
               if (!current) {
                 return current;
               }
@@ -1023,31 +932,28 @@ export default function OrderManager() {
             false,
           );
 
-          setError(
-            "",
-          );
+
+          setError("");
         },
 
-        {
-          onError: (
+
+        (
+          listenerError,
+        ) => {
+          console.error(
+            "Supabase realtime orders listener failed:",
             listenerError,
-          ) => {
-
-            console.error(
-              "Realtime orders listener failed:",
-              listenerError,
-            );
+          );
 
 
-            setError(
-              "Unable to connect to the realtime orders database.",
-            );
+          setError(
+            listenerError instanceof Error
+              ? listenerError.message
+              : "Unable to connect to the realtime orders database.",
+          );
 
 
-            setLoading(
-              false,
-            );
-          },
+          setLoading(false);
         },
       );
 
@@ -1055,20 +961,18 @@ export default function OrderManager() {
     return () => {
       unsubscribe();
     };
-
   }, []);
 
 
   /*
    * ========================================================
-   * FILTER ORDERS
+   * FILTERED ORDERS
    * ========================================================
    */
 
   const filteredOrders =
     useMemo(
       () => {
-
         const queryText =
           search
             .trim()
@@ -1079,29 +983,32 @@ export default function OrderManager() {
           (
             order,
           ) => {
-
             const customerName =
-              order.shippingAddress
-                .name
-                .toLowerCase();
+              getCustomerName(
+                order,
+              ).toLowerCase();
 
 
             const customerEmail =
-              order.userEmail
-                .toLowerCase();
+              (
+                order.userEmail ||
+                order.customer?.email ||
+                ""
+              ).toLowerCase();
 
 
             const matchesSearch =
-              queryText === "" ||
+              queryText ===
+                "" ||
               order.id
                 .toLowerCase()
                 .includes(
                   queryText,
                 ) ||
-              customerEmail.includes(
+              customerName.includes(
                 queryText,
               ) ||
-              customerName.includes(
+              customerEmail.includes(
                 queryText,
               );
 
@@ -1137,7 +1044,6 @@ export default function OrderManager() {
   const statusCounts =
     useMemo(
       () => {
-
         const counts:
           Record<
             OrderStatus,
@@ -1153,11 +1059,19 @@ export default function OrderManager() {
 
 
         for (
-          const order of orders
+          const order of
+            orders
         ) {
-          counts[
-            order.status
-          ] += 1;
+          if (
+            counts[
+              order.status
+            ] !==
+              undefined
+          ) {
+            counts[
+              order.status
+            ] += 1;
+          }
         }
 
 
@@ -1171,7 +1085,7 @@ export default function OrderManager() {
 
   /*
    * ========================================================
-   * UPDATE STATUS
+   * STATUS UPDATE
    * ========================================================
    */
 
@@ -1179,33 +1093,23 @@ export default function OrderManager() {
     orderId: string,
     status: OrderStatus,
   ) {
-
     try {
-
       setUpdatingId(
         orderId,
       );
 
 
-      setError(
-        "",
-      );
+      setError("");
 
-
-      /*
-       * Firestore remains the single source of truth.
-       *
-       * onSnapshot() updates this page and every other
-       * connected admin page.
-       */
 
       await updateOrderStatus(
         orderId,
         status,
       );
 
-    } catch (statusError) {
-
+    } catch (
+      statusError
+    ) {
       console.error(
         "Failed to update order:",
         statusError,
@@ -1217,9 +1121,7 @@ export default function OrderManager() {
           ? statusError.message
           : "Unable to update order status.",
       );
-
     } finally {
-
       setUpdatingId(
         null,
       );
@@ -1233,8 +1135,9 @@ export default function OrderManager() {
    * ========================================================
    */
 
-  if (loading) {
-
+  if (
+    loading
+  ) {
     return (
       <div className="space-y-8">
 
@@ -1289,7 +1192,6 @@ export default function OrderManager() {
       <div className="flex flex-col gap-5 sm:flex-row sm:items-end sm:justify-between">
 
         <div>
-
           <p className="text-xs font-bold uppercase tracking-[0.2em] text-[#D4AF37]">
             Sales Management
           </p>
@@ -1303,7 +1205,6 @@ export default function OrderManager() {
           <p className="mt-2 text-sm text-neutral-500">
             Manage customer orders and update their status.
           </p>
-
         </div>
 
 
@@ -1325,7 +1226,9 @@ export default function OrderManager() {
           role="alert"
           className="rounded-2xl border border-red-200 bg-red-50 px-5 py-4 text-sm font-medium text-red-700"
         >
-          {error}
+          {
+            error
+          }
         </div>
       )}
 
@@ -1338,7 +1241,6 @@ export default function OrderManager() {
           (
             option,
           ) => {
-
             const isActive =
               statusFilter ===
               option.value;
@@ -1359,10 +1261,13 @@ export default function OrderManager() {
                 }
                 className={[
                   "rounded-2xl border p-4 text-left transition",
+
                   isActive
                     ? "border-[#D4AF37] bg-[#fffdf7]"
                     : "border-neutral-200 bg-white hover:border-[#D4AF37]/50",
-                ].join(" ")}
+                ].join(
+                  " ",
+                )}
               >
 
                 <p className="text-[10px] font-bold uppercase tracking-wider text-neutral-400">
@@ -1440,9 +1345,10 @@ export default function OrderManager() {
       </section>
 
 
-      {/* ORDER TABLE */}
+      {/* ORDERS */}
 
-      {filteredOrders.length === 0 ? (
+      {filteredOrders.length ===
+      0 ? (
 
         <section className="rounded-3xl border border-dashed border-neutral-300 bg-white p-14 text-center">
 
@@ -1531,6 +1437,8 @@ export default function OrderManager() {
                       className="transition hover:bg-neutral-50"
                     >
 
+                      {/* ORDER */}
+
                       <td className="px-6 py-5">
 
                         <p className="font-black text-neutral-950">
@@ -1544,33 +1452,53 @@ export default function OrderManager() {
                         </p>
 
 
-                        <p className="mt-1 text-xs text-neutral-400">
+                        <span
+                          className={[
+                            "mt-2 inline-flex rounded-full px-2.5 py-1 text-[10px] font-bold capitalize",
+                            order.paymentStatus ===
+                              "paid"
+                              ? "bg-green-50 text-green-700"
+                              : order.paymentStatus ===
+                                  "failed"
+                                ? "bg-red-50 text-red-700"
+                                : "bg-amber-50 text-amber-700",
+                          ].join(
+                            " ",
+                          )}
+                        >
                           {
                             order.paymentStatus
                           }
-                        </p>
+                        </span>
 
                       </td>
 
+
+                      {/* CUSTOMER */}
 
                       <td className="px-6 py-5">
 
                         <p className="max-w-[220px] truncate text-sm font-bold text-neutral-900">
                           {
-                            order.shippingAddress
-                              .name
+                            getCustomerName(
+                              order,
+                            )
                           }
                         </p>
 
 
                         <p className="mt-1 max-w-[220px] truncate text-xs text-neutral-400">
                           {
-                            order.userEmail
+                            order.userEmail ||
+                            order.customer?.email ||
+                            "—"
                           }
                         </p>
 
                       </td>
 
+
+                      {/* ITEMS */}
 
                       <td className="px-6 py-5">
 
@@ -1589,6 +1517,8 @@ export default function OrderManager() {
                       </td>
 
 
+                      {/* TOTAL */}
+
                       <td className="px-6 py-5">
 
                         <p className="font-black text-neutral-950">
@@ -1600,6 +1530,8 @@ export default function OrderManager() {
 
                       </td>
 
+
+                      {/* STATUS */}
 
                       <td className="px-6 py-5">
 
@@ -1624,14 +1556,18 @@ export default function OrderManager() {
                             }
                             className={[
                               "appearance-none rounded-full py-2 pl-3 pr-8 text-xs font-bold outline-none",
+
                               getStatusClasses(
                                 order.status,
                               ),
+
                               updatingId ===
                               order.id
                                 ? "opacity-50"
                                 : "",
-                            ].join(" ")}
+                            ].join(
+                              " ",
+                            )}
                           >
 
                             {statusOptions.map(
@@ -1666,6 +1602,8 @@ export default function OrderManager() {
                       </td>
 
 
+                      {/* DATE */}
+
                       <td className="px-6 py-5">
 
                         <span className="text-xs text-neutral-500">
@@ -1676,6 +1614,8 @@ export default function OrderManager() {
 
                       </td>
 
+
+                      {/* ACTION */}
 
                       <td className="px-6 py-5 text-right">
 

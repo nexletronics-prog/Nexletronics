@@ -1,75 +1,88 @@
 import crypto from "node:crypto";
 
 import {
-  adminDb,
-} from "../_lib/firebase-admin.mjs";
+  createClient,
+} from "@supabase/supabase-js";
 
 import {
   requireAuth,
 } from "../_lib/require-auth.mjs";
 
 
-/*
- * ==========================================================
- * TYPES
- * ==========================================================
- */
-
 interface PaymentSessionItem {
   productId: string;
+
   name: string;
+
   sku?: string;
+
   quantity: number;
+
   unitPrice: number;
+
   lineTotal: number;
+
   image?: string;
+
   category?: string;
 }
 
 
 interface PaymentSessionData {
-  razorpayOrderId: string;
+  razorpay_order_id: string;
+
   receipt?: string;
 
-  userId: string;
-  userEmail?: string;
+  user_id: string;
+
+  user_email?: string;
 
   customer?: {
     name?: string;
+
     email?: string;
+
     phone?: string;
   };
 
   items?: PaymentSessionItem[];
 
-  shippingAddress?:
-    | Record<string, unknown>
-    | null;
+  shipping_address?:
+    Record<string, unknown> |
+    null;
 
-  billingAddress?:
-    | Record<string, unknown>
-    | null;
+  billing_address?:
+    Record<string, unknown> |
+    null;
 
-  billingAddressSameAsShipping?: boolean;
+  billing_address_same_as_shipping?:
+    boolean;
 
   subtotal: number;
-  shippingAmount: number;
-  taxAmount: number;
-  discountAmount: number;
+
+  shipping_amount: number;
+
+  tax_amount: number;
+
+  discount_amount: number;
+
   total: number;
 
-  amountInPaise: number;
+  amount_in_paise: number;
+
   currency: string;
+
   status: string;
 
-  razorpayPaymentId?: string;
-  appOrderId?: string;
+  razorpay_payment_id?: string;
+
+  app_order_id?: string;
 }
 
 
 /*
  * ==========================================================
- * JSON RESPONSE
+ * RESPONSE
  * ==========================================================
  */
 
@@ -96,14 +109,15 @@ function json(
 
 /*
  * ==========================================================
- * STRING / NUMBER HELPERS
+ * HELPERS
  * ==========================================================
  */
 
 function asString(
   value: unknown,
 ): string {
-  return typeof value === "string"
+  return typeof value ===
+    "string"
     ? value
     : "";
 }
@@ -113,7 +127,9 @@ function asNumber(
   value: unknown,
 ): number {
   const numberValue =
-    Number(value);
+    Number(
+      value,
+    );
 
   return Number.isFinite(
     numberValue,
@@ -122,12 +138,6 @@ function asNumber(
     : 0;
 }
 
-
-/*
- * ==========================================================
- * SIGNATURE COMPARISON
- * ==========================================================
- */
 
 function signaturesMatch(
   expected: string,
@@ -161,17 +171,54 @@ function signaturesMatch(
 
 /*
  * ==========================================================
- * GOOGLE SHEETS BACKUP
+ * SUPABASE ADMIN CLIENT
+ * ==========================================================
+ */
+
+function getSupabaseAdmin() {
+  const url =
+    process.env
+      .VITE_SUPABASE_URL;
+
+  const serviceRoleKey =
+    process.env
+      .SUPABASE_SERVICE_ROLE_KEY;
+
+  if (!url) {
+    throw new Error(
+      "Missing VITE_SUPABASE_URL.",
+    );
+  }
+
+  if (!serviceRoleKey) {
+    throw new Error(
+      "Missing SUPABASE_SERVICE_ROLE_KEY.",
+    );
+  }
+
+  return createClient(
+    url,
+    serviceRoleKey,
+    {
+      auth: {
+        persistSession:
+          false,
+
+        autoRefreshToken:
+          false,
+      },
+    },
+  );
+}
+
+
+/*
+ * ==========================================================
+ * GOOGLE SHEETS
  * ==========================================================
  *
- * IMPORTANT:
+ * Google Sheets is secondary reporting only.
  *
- * This runs AFTER the Razorpay payment has been
- * verified and AFTER the Firestore order has been created.
- *
- * Failure here must NEVER turn a successful payment
- * into a failed checkout.
- * ==========================================================
  */
 
 async function backupOrderToGoogleSheets(
@@ -184,39 +231,54 @@ async function backupOrderToGoogleSheets(
 
     items: Array<{
       name: string;
+
       quantity: number;
+
       price: number;
+
       sku?: string;
     }>;
 
     shippingAddress: {
       name: string;
+
       phone: string;
+
       email: string;
+
       address: string;
+
       city: string;
+
       state: string;
+
       pincode: string;
     };
 
     subtotal: number;
+
     shipping: number;
+
     total: number;
+
     currency: string;
 
     paymentStatus: string;
+
     paymentMethod: string;
+
     status: string;
 
     createdAt: string;
   },
 ): Promise<void> {
-
   const sheetsUrl =
     process.env
       .GOOGLE_SHEETS_WEB_APP_URL;
 
-  if (!sheetsUrl) {
+  if (
+    !sheetsUrl
+  ) {
     console.error(
       "GOOGLE_SHEETS_WEB_APP_URL is missing.",
     );
@@ -224,157 +286,104 @@ async function backupOrderToGoogleSheets(
     return;
   }
 
-
-  const payload = {
-    orderId:
-      order.orderId,
-
-    userId:
-      order.userId,
-
-    userEmail:
-      order.userEmail,
-
-    items:
-      order.items.map(
-        (
-          item,
-        ) => ({
-          name:
-            item.name,
-
-          quantity:
-            item.quantity,
-
-          price:
-            item.price,
-
-          sku:
-            item.sku ??
-            "",
-        }),
-      ),
-
-    shippingAddress:
-      order.shippingAddress,
-
-    subtotal:
-      order.subtotal,
-
-    shipping:
-      order.shipping,
-
-    total:
-      order.total,
-
-    currency:
-      order.currency,
-
-    paymentStatus:
-      order.paymentStatus,
-
-    paymentMethod:
-      order.paymentMethod,
-
-    status:
-      order.status,
-
-    createdAt:
-      order.createdAt,
-  };
-
-
   try {
+    await fetch(
+      sheetsUrl,
+      {
+        method:
+          "POST",
 
-    console.log(
-      "[Google Sheets] Sending order:",
-      order.orderId,
-    );
-
-
-    const response =
-      await fetch(
-        sheetsUrl,
-        {
-          method:
-            "POST",
-
-          headers: {
-            "Content-Type":
-              "text/plain;charset=utf-8",
-          },
-
-          body:
-            JSON.stringify(
-              payload,
-            ),
+        headers: {
+          "Content-Type":
+            "text/plain;charset=utf-8",
         },
-      );
 
+        body:
+          JSON.stringify({
+            orderId:
+              order.orderId,
 
-    const responseText =
-      await response.text();
+            userId:
+              order.userId,
 
+            userEmail:
+              order.userEmail,
 
-    if (
-      !response.ok
-    ) {
+            items:
+              order.items.map(
+                (
+                  item,
+                ) => ({
+                  name:
+                    item.name,
 
-      console.error(
-        "[Google Sheets] HTTP error:",
-        response.status,
-        responseText,
-      );
+                  quantity:
+                    item.quantity,
 
-      return;
-    }
+                  price:
+                    item.price,
 
+                  sku:
+                    item.sku ??
+                    "",
+                }),
+              ),
 
-    console.log(
-      "[Google Sheets] Response:",
-      responseText,
+            shippingAddress:
+              order.shippingAddress,
+
+            subtotal:
+              order.subtotal,
+
+            shipping:
+              order.shipping,
+
+            total:
+              order.total,
+
+            currency:
+              order.currency,
+
+            paymentStatus:
+              order.paymentStatus,
+
+            paymentMethod:
+              order.paymentMethod,
+
+            status:
+              order.status,
+
+            createdAt:
+              order.createdAt,
+          }),
+      },
     );
-
-
-    console.log(
-      "[Google Sheets] Order submitted successfully:",
-      order.orderId,
-    );
-
   } catch (
     error
   ) {
-
     console.error(
       "[Google Sheets] Backup failed:",
       error,
     );
-
-    /*
-     * DO NOT THROW.
-     *
-     * Payment has already been verified.
-     */
   }
 }
 
 
 /*
  * ==========================================================
- * VERIFY PAYMENT
+ * PAYMENT VERIFICATION
  * ==========================================================
  */
 
 export async function POST(
   request: Request,
 ) {
-
   try {
 
     /*
-     * ======================================================
-     * FIREBASE AUTH
-     * ======================================================
+     * ------------------------------------------------------
+     * FIREBASE AUTHENTICATION
+     * ------------------------------------------------------
      */
 
     const user =
@@ -384,9 +393,9 @@ export async function POST(
 
 
     /*
-     * ======================================================
-     * RAZORPAY SERVER CREDENTIALS
-     * ======================================================
+     * ------------------------------------------------------
+     * RAZORPAY CONFIGURATION
+     * ------------------------------------------------------
      */
 
     const keyId =
@@ -402,7 +411,6 @@ export async function POST(
       !keyId ||
       !keySecret
     ) {
-
       return json(
         {
           success:
@@ -417,9 +425,19 @@ export async function POST(
 
 
     /*
-     * ======================================================
+     * ------------------------------------------------------
+     * SUPABASE SERVICE ROLE
+     * ------------------------------------------------------
+     */
+
+    const supabase =
+      getSupabaseAdmin();
+
+
+    /*
+     * ------------------------------------------------------
      * REQUEST BODY
-     * ======================================================
+     * ------------------------------------------------------
      */
 
     const body =
@@ -449,7 +467,6 @@ export async function POST(
       !razorpayPaymentId ||
       !razorpaySignature
     ) {
-
       return json(
         {
           success:
@@ -469,24 +486,37 @@ export async function POST(
      * ======================================================
      */
 
-    const paymentSessionRef =
-      adminDb
-        .collection(
-          "paymentSessions",
+    const {
+      data:
+        sessionRow,
+
+      error:
+        sessionError,
+    } =
+      await supabase
+        .from(
+          "payment_sessions",
         )
-        .doc(
+        .select(
+          "*",
+        )
+        .eq(
+          "razorpay_order_id",
           razorpayOrderId,
-        );
-
-
-    const paymentSessionSnapshot =
-      await paymentSessionRef.get();
+        )
+        .maybeSingle();
 
 
     if (
-      !paymentSessionSnapshot.exists
+      sessionError
     ) {
+      throw sessionError;
+    }
 
+
+    if (
+      !sessionRow
+    ) {
       return json(
         {
           success:
@@ -501,39 +531,19 @@ export async function POST(
 
 
     const paymentSession =
-      paymentSessionSnapshot.data() as
-        | PaymentSessionData
-        | undefined;
-
-
-    if (
-      !paymentSession
-    ) {
-
-      return json(
-        {
-          success:
-            false,
-
-          error:
-            "Payment session data is missing.",
-        },
-        404,
-      );
-    }
+      sessionRow as PaymentSessionData;
 
 
     /*
      * ======================================================
-     * OWNERSHIP CHECK
+     * PAYMENT SESSION OWNERSHIP
      * ======================================================
      */
 
     if (
-      paymentSession.userId !==
+      paymentSession.user_id !==
       user.uid
     ) {
-
       return json(
         {
           success:
@@ -552,17 +562,15 @@ export async function POST(
      * IDEMPOTENCY
      * ======================================================
      *
-     * If payment was already verified, don't create
-     * another Firestore order or another Sheet row.
-     * ======================================================
+     * If the order was already successfully created, return
+     * it without touching stock again.
      */
 
     if (
       paymentSession.status ===
         "verified" &&
-      paymentSession.appOrderId
+      paymentSession.app_order_id
     ) {
-
       return json({
         success:
           true,
@@ -571,13 +579,13 @@ export async function POST(
           true,
 
         orderId:
-          paymentSession.appOrderId,
+          paymentSession.app_order_id,
 
         razorpayOrderId,
 
         razorpayPaymentId:
           paymentSession
-            .razorpayPaymentId ??
+            .razorpay_payment_id ??
           razorpayPaymentId,
       });
     }
@@ -585,7 +593,7 @@ export async function POST(
 
     /*
      * ======================================================
-     * VERIFY RAZORPAY SIGNATURE
+     * RAZORPAY SIGNATURE
      * ======================================================
      */
 
@@ -613,7 +621,6 @@ export async function POST(
         razorpaySignature,
       )
     ) {
-
       return json(
         {
           success:
@@ -629,7 +636,7 @@ export async function POST(
 
     /*
      * ======================================================
-     * QUERY RAZORPAY PAYMENT
+     * FETCH PAYMENT FROM RAZORPAY
      * ======================================================
      */
 
@@ -665,13 +672,6 @@ export async function POST(
     if (
       !paymentResponse.ok
     ) {
-
-      console.error(
-        "Razorpay payment lookup failed:",
-        paymentData,
-      );
-
-
       return json(
         {
           success:
@@ -687,7 +687,7 @@ export async function POST(
 
     /*
      * ======================================================
-     * VERIFY ORDER ID
+     * VERIFY PAYMENT BELONGS TO ORDER
      * ======================================================
      */
 
@@ -695,7 +695,6 @@ export async function POST(
       paymentData.order_id !==
       razorpayOrderId
     ) {
-
       return json(
         {
           success:
@@ -717,8 +716,7 @@ export async function POST(
 
     const expectedAmount =
       asNumber(
-        paymentSession
-          .amountInPaise,
+        paymentSession.amount_in_paise,
       );
 
 
@@ -729,11 +727,11 @@ export async function POST(
 
 
     if (
-      expectedAmount <= 0 ||
+      expectedAmount <=
+        0 ||
       actualAmount !==
         expectedAmount
     ) {
-
       return json(
         {
           success:
@@ -762,7 +760,6 @@ export async function POST(
       paymentData.currency !==
       expectedCurrency
     ) {
-
       return json(
         {
           success:
@@ -778,7 +775,7 @@ export async function POST(
 
     /*
      * ======================================================
-     * VERIFY CAPTURE STATUS
+     * VERIFY CAPTURED
      * ======================================================
      */
 
@@ -786,7 +783,6 @@ export async function POST(
       paymentData.status !==
       "captured"
     ) {
-
       return json(
         {
           success:
@@ -797,10 +793,6 @@ export async function POST(
               paymentData.status ??
               "unknown"
             }.`,
-
-          paymentStatus:
-            paymentData.status ??
-            "unknown",
         },
         409,
       );
@@ -809,17 +801,201 @@ export async function POST(
 
     /*
      * ======================================================
-     * CREATE FIRESTORE ORDER
+     * CHECK EXISTING ORDER
      * ======================================================
+     *
+     * This is checked before stock modification so a repeated
+     * verification request never reserves/decrements stock
+     * again when the order already exists.
      */
 
-    const orderRef =
-      adminDb
-        .collection(
+    const {
+      data:
+        existingOrder,
+
+      error:
+        existingOrderError,
+    } =
+      await supabase
+        .from(
           "orders",
         )
-        .doc();
+        .select(
+          "id",
+        )
+        .eq(
+          "razorpay_order_id",
+          razorpayOrderId,
+        )
+        .maybeSingle();
 
+
+    if (
+      existingOrderError
+    ) {
+      throw existingOrderError;
+    }
+
+
+    if (
+      existingOrder
+    ) {
+      const now =
+        new Date().toISOString();
+
+
+      const {
+        error:
+          repairSessionError,
+      } =
+        await supabase
+          .from(
+            "payment_sessions",
+          )
+          .update({
+            status:
+              "verified",
+
+            razorpay_payment_id:
+              razorpayPaymentId,
+
+            razorpay_signature:
+              razorpaySignature,
+
+            razorpay_payment_status:
+              paymentData.status,
+
+            payment_method:
+              paymentData.method ??
+              "razorpay",
+
+            app_order_id:
+              existingOrder.id,
+
+            verified_at:
+              now,
+
+            updated_at:
+              now,
+          })
+          .eq(
+            "razorpay_order_id",
+            razorpayOrderId,
+          );
+
+
+      if (
+        repairSessionError
+      ) {
+        console.error(
+          "[verify-payment] Could not repair payment session:",
+          repairSessionError,
+        );
+      }
+
+
+      return json({
+        success:
+          true,
+
+        verified:
+          true,
+
+        orderId:
+          existingOrder.id,
+
+        razorpayOrderId,
+
+        razorpayPaymentId,
+      });
+    }
+
+
+    /*
+     * ======================================================
+     * ATOMIC STOCK RESERVATION
+     * ======================================================
+     *
+     * The PostgreSQL function:
+     *
+     *   reserve_payment_stock()
+     *
+     * locks the payment session and product rows and performs
+     * the stock decrement atomically.
+     *
+     * Repeated verification of the same Razorpay order is
+     * idempotent because the payment session stores
+     * stock_adjusted_at.
+     */
+
+    const {
+      data:
+        stockReservation,
+
+      error:
+        stockReservationError,
+    } =
+      await supabase.rpc(
+        "reserve_payment_stock",
+        {
+          p_razorpay_order_id:
+            razorpayOrderId,
+        },
+      );
+
+
+    if (
+      stockReservationError
+    ) {
+      console.error(
+        "[verify-payment] Atomic stock reservation failed:",
+        stockReservationError,
+      );
+
+
+      /*
+       * The payment is already captured.
+       *
+       * We intentionally do not create a PAID order when the
+       * requested stock cannot be reserved.
+       *
+       * This response must be reconciled/refunded through the
+       * payment operations flow.
+       */
+
+      return json(
+        {
+          success:
+            false,
+
+          verified:
+            true,
+
+          paymentCaptured:
+            true,
+
+          stockReserved:
+            false,
+
+          error:
+            "Payment was captured, but the requested stock is no longer available. Please contact Nexletronics support for refund/reconciliation.",
+        },
+        409,
+      );
+    }
+
+
+    console.log(
+      "[verify-payment] Atomic stock reservation:",
+      stockReservation,
+    );
+
+
+    /*
+     * ======================================================
+     * BUILD ORDER DATA
+     * ======================================================
+     */
 
     const sessionItems =
       Array.isArray(
@@ -829,19 +1005,35 @@ export async function POST(
         : [];
 
 
+    const orderId =
+      crypto.randomUUID();
+
+
+    const now =
+      new Date().toISOString();
+
+
     const orderItems =
       sessionItems.map(
         (
           item,
         ) => ({
-          productId:
+          order_id:
+            orderId,
+
+          product_id:
             item.productId,
 
           name:
-            item.name,
+            asString(
+              item.name,
+            ) ||
+            "Unnamed product",
 
           sku:
-            item.sku ||
+            asString(
+              item.sku,
+            ) ||
             null,
 
           price:
@@ -852,6 +1044,7 @@ export async function POST(
           quantity:
             Math.max(
               1,
+
               Math.floor(
                 asNumber(
                   item.quantity,
@@ -859,126 +1052,335 @@ export async function POST(
               ),
             ),
 
-          lineTotal:
+          line_total:
             asNumber(
               item.lineTotal,
             ),
 
           image:
-            item.image ||
+            asString(
+              item.image,
+            ) ||
             null,
 
           category:
-            item.category ||
+            asString(
+              item.category,
+            ) ||
             null,
         }),
       );
 
 
-    const now =
-      new Date();
+    /*
+     * ======================================================
+     * CREATE ORDER
+     * ======================================================
+     */
+
+    const {
+      error:
+        orderError,
+    } =
+      await supabase
+        .from(
+          "orders",
+        )
+        .insert({
+          id:
+            orderId,
+
+          user_id:
+            user.uid,
+
+          user_email:
+            paymentSession.user_email ??
+            user.email ??
+            "",
+
+          customer:
+            paymentSession.customer ??
+            {},
+
+          shipping_address:
+            paymentSession.shipping_address ??
+            null,
+
+          billing_address:
+            paymentSession.billing_address ??
+            null,
+
+          billing_address_same_as_shipping:
+            paymentSession
+              .billing_address_same_as_shipping ??
+            false,
+
+          subtotal:
+            asNumber(
+              paymentSession.subtotal,
+            ),
+
+          shipping:
+            asNumber(
+              paymentSession.shipping_amount,
+            ),
+
+          tax:
+            asNumber(
+              paymentSession.tax_amount,
+            ),
+
+          discount:
+            asNumber(
+              paymentSession.discount_amount,
+            ),
+
+          total:
+            asNumber(
+              paymentSession.total,
+            ),
+
+          currency:
+            expectedCurrency,
+
+          status:
+            "pending",
+
+          payment_status:
+            "paid",
+
+          payment_method:
+            paymentData.method ??
+            "razorpay",
+
+          razorpay_order_id:
+            razorpayOrderId,
+
+          razorpay_payment_id:
+            razorpayPaymentId,
+
+          razorpay_signature:
+            razorpaySignature,
+
+          razorpay_payment_status:
+            paymentData.status,
+
+          razorpay_amount:
+            actualAmount,
+
+          razorpay_currency:
+            paymentData.currency,
+
+          receipt:
+            paymentSession.receipt ??
+            null,
+
+          created_at:
+            now,
+
+          updated_at:
+            now,
+        });
+
+
+    if (
+      orderError
+    ) {
+
+      /*
+       * Another request may have won the race and created
+       * the order.
+       */
+
+      const {
+        data:
+          concurrentOrder,
+      } =
+        await supabase
+          .from(
+            "orders",
+          )
+          .select(
+            "id",
+          )
+          .eq(
+            "razorpay_order_id",
+            razorpayOrderId,
+          )
+          .maybeSingle();
+
+
+      if (
+        concurrentOrder
+      ) {
+
+        await supabase
+          .from(
+            "payment_sessions",
+          )
+          .update({
+            status:
+              "verified",
+
+            razorpay_payment_id:
+              razorpayPaymentId,
+
+            razorpay_signature:
+              razorpaySignature,
+
+            razorpay_payment_status:
+              paymentData.status,
+
+            payment_method:
+              paymentData.method ??
+              "razorpay",
+
+            app_order_id:
+              concurrentOrder.id,
+
+            verified_at:
+              now,
+
+            updated_at:
+              now,
+          })
+          .eq(
+            "razorpay_order_id",
+            razorpayOrderId,
+          );
+
+
+        return json({
+          success:
+            true,
+
+          verified:
+            true,
+
+          orderId:
+            concurrentOrder.id,
+
+          razorpayOrderId,
+
+          razorpayPaymentId,
+        });
+      }
+
+
+      /*
+       * Order creation genuinely failed.
+       *
+       * Restore the stock reservation.
+       */
+
+      const {
+        error:
+          releaseError,
+      } =
+        await supabase.rpc(
+          "release_payment_stock",
+          {
+            p_razorpay_order_id:
+              razorpayOrderId,
+          },
+        );
+
+
+      if (
+        releaseError
+      ) {
+        console.error(
+          "[verify-payment] Failed to release stock after order insert failure:",
+          releaseError,
+        );
+      }
+
+
+      throw orderError;
+    }
 
 
     /*
      * ======================================================
-     * FIRESTORE ORDER
+     * CREATE ORDER ITEMS
      * ======================================================
      */
 
-    await orderRef.set({
+    const {
+      error:
+        itemError,
+    } =
+      await supabase
+        .from(
+          "order_items",
+        )
+        .insert(
+          orderItems,
+        );
 
-      userId:
-        user.uid,
 
-      userEmail:
-        paymentSession
-          .userEmail ??
-        user.email ??
-        "",
+    if (
+      itemError
+    ) {
 
-      customer:
-        paymentSession.customer ??
-        null,
+      /*
+       * Remove incomplete order.
+       */
 
-      items:
-        orderItems,
+      const {
+        error:
+          deleteOrderError,
+      } =
+        await supabase
+          .from(
+            "orders",
+          )
+          .delete()
+          .eq(
+            "id",
+            orderId,
+          );
 
-      shippingAddress:
-        paymentSession
-          .shippingAddress ??
-        null,
 
-      billingAddress:
-        paymentSession
-          .billingAddress ??
-        null,
+      if (
+        deleteOrderError
+      ) {
+        console.error(
+          "[verify-payment] Failed to delete incomplete order:",
+          deleteOrderError,
+        );
+      }
 
-      billingAddressSameAsShipping:
-        paymentSession
-          .billingAddressSameAsShipping ??
-        false,
 
-      subtotal:
-        asNumber(
-          paymentSession.subtotal,
-        ),
+      /*
+       * Restore reserved stock.
+       */
 
-      shipping:
-        asNumber(
-          paymentSession.shippingAmount,
-        ),
+      const {
+        error:
+          releaseError,
+      } =
+        await supabase.rpc(
+          "release_payment_stock",
+          {
+            p_razorpay_order_id:
+              razorpayOrderId,
+          },
+        );
 
-      tax:
-        asNumber(
-          paymentSession.taxAmount,
-        ),
 
-      discount:
-        asNumber(
-          paymentSession.discountAmount,
-        ),
+      if (
+        releaseError
+      ) {
+        console.error(
+          "[verify-payment] Failed to release stock after order-item failure:",
+          releaseError,
+        );
+      }
 
-      total:
-        asNumber(
-          paymentSession.total,
-        ),
 
-      currency:
-        expectedCurrency,
-
-      status:
-        "pending",
-
-      paymentStatus:
-        "paid",
-
-      paymentMethod:
-        paymentData.method ??
-        "razorpay",
-
-      razorpayOrderId,
-
-      razorpayPaymentId,
-
-      razorpayPaymentStatus:
-        paymentData.status,
-
-      razorpayAmount:
-        actualAmount,
-
-      razorpayCurrency:
-        paymentData.currency,
-
-      receipt:
-        paymentSession.receipt ??
-        null,
-
-      createdAt:
-        now,
-
-      updatedAt:
-        now,
-    });
+      throw itemError;
+    }
 
 
     /*
@@ -987,31 +1389,54 @@ export async function POST(
      * ======================================================
      */
 
-    await paymentSessionRef.update({
+    const {
+      error:
+        sessionUpdateError,
+    } =
+      await supabase
+        .from(
+          "payment_sessions",
+        )
+        .update({
+          status:
+            "verified",
 
-      status:
-        "verified",
+          razorpay_payment_id:
+            razorpayPaymentId,
 
-      razorpayPaymentId,
+          razorpay_signature:
+            razorpaySignature,
 
-      razorpaySignature,
+          razorpay_payment_status:
+            paymentData.status,
 
-      razorpayPaymentStatus:
-        paymentData.status,
+          payment_method:
+            paymentData.method ??
+            "razorpay",
 
-      paymentMethod:
-        paymentData.method ??
-        "razorpay",
+          app_order_id:
+            orderId,
 
-      appOrderId:
-        orderRef.id,
+          verified_at:
+            now,
 
-      verifiedAt:
-        now,
+          updated_at:
+            now,
+        })
+        .eq(
+          "razorpay_order_id",
+          razorpayOrderId,
+        );
 
-      updatedAt:
-        now,
-    });
+
+    if (
+      sessionUpdateError
+    ) {
+      console.error(
+        "[verify-payment] Payment session update failed:",
+        sessionUpdateError,
+      );
+    }
 
 
     /*
@@ -1019,93 +1444,38 @@ export async function POST(
      * GOOGLE SHEETS
      * ======================================================
      *
-     * Now that the payment is verified and the Firestore
-     * order exists, send the complete order to Sheets.
+     * Secondary reporting only.
      *
-     * This is deliberately awaited so the request has a
-     * chance to reach Google Apps Script before Vercel
-     * finishes the invocation.
-     *
-     * Failure does NOT fail the payment.
-     * ======================================================
      */
 
     const customer =
-      paymentSession.customer ??
-      {};
+      (
+        paymentSession.customer ??
+        {}
+      ) as Record<
+        string,
+        unknown
+      >;
 
 
-    const storedShippingAddress =
-      paymentSession
-        .shippingAddress ??
-      {};
-
-
-    const shippingAddress = {
-
-      name:
-        asString(
-          storedShippingAddress.name,
-        ) ||
-        asString(
-          customer.name,
-        ) ||
-        "",
-
-      phone:
-        asString(
-          storedShippingAddress.phone,
-        ) ||
-        asString(
-          customer.phone,
-        ) ||
-        "",
-
-      email:
-        asString(
-          storedShippingAddress.email,
-        ) ||
-        asString(
-          customer.email,
-        ) ||
-        paymentSession
-          .userEmail ||
-        user.email ||
-        "",
-
-      address:
-        asString(
-          storedShippingAddress.address,
-        ),
-
-      city:
-        asString(
-          storedShippingAddress.city,
-        ),
-
-      state:
-        asString(
-          storedShippingAddress.state,
-        ),
-
-      pincode:
-        asString(
-          storedShippingAddress.pincode,
-        ),
-    };
+    const shipping =
+      (
+        paymentSession.shipping_address ??
+        {}
+      ) as Record<
+        string,
+        unknown
+      >;
 
 
     await backupOrderToGoogleSheets({
-
-      orderId:
-        orderRef.id,
+      orderId,
 
       userId:
         user.uid,
 
       userEmail:
-        paymentSession
-          .userEmail ??
+        paymentSession.user_email ??
         user.email ??
         "",
 
@@ -1120,6 +1490,7 @@ export async function POST(
             quantity:
               Math.max(
                 1,
+
                 Math.floor(
                   asNumber(
                     item.quantity,
@@ -1138,7 +1509,57 @@ export async function POST(
           }),
         ),
 
-      shippingAddress,
+      shippingAddress: {
+        name:
+          asString(
+            shipping.name,
+          ) ||
+          asString(
+            customer.name,
+          ) ||
+          "",
+
+        phone:
+          asString(
+            shipping.phone,
+          ) ||
+          asString(
+            customer.phone,
+          ) ||
+          "",
+
+        email:
+          asString(
+            shipping.email,
+          ) ||
+          asString(
+            customer.email,
+          ) ||
+          paymentSession
+            .user_email ||
+          user.email ||
+          "",
+
+        address:
+          asString(
+            shipping.address,
+          ),
+
+        city:
+          asString(
+            shipping.city,
+          ),
+
+        state:
+          asString(
+            shipping.state,
+          ),
+
+        pincode:
+          asString(
+            shipping.pincode,
+          ),
+      },
 
       subtotal:
         asNumber(
@@ -1147,7 +1568,7 @@ export async function POST(
 
       shipping:
         asNumber(
-          paymentSession.shippingAmount,
+          paymentSession.shipping_amount,
         ),
 
       total:
@@ -1169,7 +1590,7 @@ export async function POST(
         "pending",
 
       createdAt:
-        now.toISOString(),
+        now,
     });
 
 
@@ -1180,15 +1601,13 @@ export async function POST(
      */
 
     return json({
-
       success:
         true,
 
       verified:
         true,
 
-      orderId:
-        orderRef.id,
+      orderId,
 
       razorpayOrderId,
 
@@ -1196,16 +1615,14 @@ export async function POST(
 
       paymentStatus:
         paymentData.status,
-
     });
-
 
   } catch (
     error
   ) {
 
     console.error(
-      "verify-payment error:",
+      "[verify-payment] ERROR:",
       error,
     );
 

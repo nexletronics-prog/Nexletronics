@@ -19,6 +19,11 @@ import {
   authService,
 } from "../services/auth.service";
 
+import {
+  saveCustomerProfile,
+} from "../services/customer.service";
+
+
 /*
  * ==========================================================
  * AUTH CONTEXT TYPE
@@ -53,6 +58,7 @@ interface AuthContextValue {
     () => Promise<void>;
 }
 
+
 /*
  * ==========================================================
  * CONTEXT
@@ -64,6 +70,7 @@ export const AuthContext =
     AuthContextValue |
     undefined
   >(undefined);
+
 
 /*
  * ==========================================================
@@ -79,40 +86,262 @@ export function AuthProvider({
   const [
     user,
     setUser,
-  ] = useState<User | null>(
-    null,
-  );
+  ] =
+    useState<User | null>(
+      null,
+    );
 
   const [
     loading,
     setLoading,
-  ] = useState(true);
+  ] =
+    useState(true);
+
 
   /*
    * ========================================================
    * FIREBASE AUTH STATE LISTENER
    * ========================================================
+   *
+   * Firebase remains the only authentication system.
+   *
+   * After Firebase authentication succeeds:
+   *
+   * 1. Ensure the Firebase token contains the Supabase
+   *    authentication/admin claims through the backend.
+   * 2. Refresh the Firebase token.
+   * 3. Ensure the Supabase profile exists.
+   * 4. Expose the authenticated Firebase user.
    */
 
   useEffect(() => {
     const unsubscribe =
       onAuthStateChanged(
         auth,
-        (
+        async (
           currentUser,
         ) => {
-          setUser(
-            currentUser,
-          );
+          /*
+           * ------------------------------------------------
+           * NO USER
+           * ------------------------------------------------
+           */
 
-          setLoading(
-            false,
-          );
+          if (!currentUser) {
+            setUser(
+              null,
+            );
+
+            setLoading(
+              false,
+            );
+
+            return;
+          }
+
+
+          /*
+           * ------------------------------------------------
+           * USER EXISTS
+           * ------------------------------------------------
+           */
+
+          try {
+            console.log(
+              "[AUTH] Firebase user detected",
+              {
+                uid:
+                  currentUser.uid,
+
+                email:
+                  currentUser.email ?? null,
+              },
+            );
+
+
+            /*
+             * Get the current Firebase ID token.
+             */
+
+            const idToken =
+              await currentUser.getIdToken(
+                false,
+              );
+
+
+            /*
+             * Ask the Vercel backend to ensure:
+             *
+             * role = authenticated
+             * is_admin = true / false
+             *
+             * and the Supabase profile exists.
+             */
+
+            const response =
+              await fetch(
+                "/api/auth/ensure-supabase-role",
+                {
+                  method:
+                    "POST",
+
+                  headers: {
+                    Authorization:
+                      `Bearer ${idToken}`,
+
+                    "Content-Type":
+                      "application/json",
+                  },
+                },
+              );
+
+
+            /*
+             * Read JSON safely.
+             */
+
+            let result:
+              {
+                success?: boolean;
+                uid?: string;
+                role?: string;
+                is_admin?: boolean;
+                error?: string;
+              } = {};
+
+            try {
+              result =
+                await response.json();
+            } catch {
+              result = {};
+            }
+
+
+            /*
+             * Backend failure.
+             */
+
+            if (
+              !response.ok ||
+              result.success !== true
+            ) {
+              throw new Error(
+                result.error ??
+                  `Supabase authentication setup failed with status ${response.status}.`,
+              );
+            }
+
+
+            /*
+             * ------------------------------------------------
+             * FORCE TOKEN REFRESH
+             * ------------------------------------------------
+             *
+             * The backend may have changed Firebase custom
+             * claims. Refresh the ID token so Supabase sees
+             * the current claims immediately.
+             */
+
+            await currentUser.getIdToken(
+              true,
+            );
+
+
+            /*
+             * ------------------------------------------------
+             * ENSURE SUPABASE PROFILE
+             * ------------------------------------------------
+             *
+             * IMPORTANT:
+             *
+             * Do NOT pass "provider" here.
+             *
+             * saveCustomerProfile() intentionally accepts:
+             *   uid
+             *   name
+             *   email
+             *   phone
+             *   photoURL
+             *
+             * The provider value is handled by the backend
+             * authentication bridge.
+             */
+
+            await saveCustomerProfile({
+              uid:
+                currentUser.uid,
+
+              name:
+                currentUser.displayName?.trim() ||
+                "Customer",
+
+              email:
+                currentUser.email?.trim() ||
+                "",
+
+              phone:
+                "",
+
+              photoURL:
+                currentUser.photoURL?.trim() ||
+                "",
+            });
+
+
+            console.log(
+              "[AUTH] Supabase authentication bridge ready",
+              {
+                uid:
+                  currentUser.uid,
+
+                role:
+                  result.role ??
+                  "authenticated",
+
+                is_admin:
+                  result.is_admin ??
+                  false,
+              },
+            );
+
+
+            /*
+             * Now expose the Firebase user to the rest
+             * of the application.
+             */
+
+            setUser(
+              currentUser,
+            );
+          } catch (
+            error
+          ) {
+            console.error(
+              "[AUTH] Supabase authentication bridge failed:",
+              error,
+            );
+
+
+            /*
+             * Do not expose a partially configured
+             * authenticated user to the application.
+             */
+
+            setUser(
+              null,
+            );
+          } finally {
+            setLoading(
+              false,
+            );
+          }
         },
       );
 
+
     return unsubscribe;
   }, []);
+
 
   /*
    * ========================================================
@@ -124,14 +353,15 @@ export function AuthProvider({
     useMemo<AuthContextValue>(
       () => ({
         /*
-         * Current Firebase user
+         * Current Firebase user.
          */
         user,
 
         /*
-         * Initial authentication loading
+         * Authentication loading state.
          */
         loading,
+
 
         /*
          * ==================================================
@@ -153,6 +383,7 @@ export function AuthProvider({
             return loggedInUser;
           },
 
+
         /*
          * ==================================================
          * GOOGLE LOGIN
@@ -166,6 +397,7 @@ export function AuthProvider({
 
             return googleUser;
           },
+
 
         /*
          * ==================================================
@@ -189,6 +421,7 @@ export function AuthProvider({
             return registeredUser;
           },
 
+
         /*
          * ==================================================
          * LOGOUT
@@ -203,6 +436,7 @@ export function AuthProvider({
         loading,
       ],
     );
+
 
   /*
    * ========================================================

@@ -8,20 +8,13 @@ import {
   type ReactNode,
 } from "react";
 
-import {
-  doc,
-  getDoc,
-  serverTimestamp,
-  setDoc,
-} from "firebase/firestore";
-
 import type {
   Product,
 } from "../types/product";
 
 import {
-  db,
-} from "../firebase/config";
+  supabase,
+} from "../lib/supabase";
 
 import {
   useAuth,
@@ -91,7 +84,7 @@ const GUEST_CART_KEY =
   "nexletronics-cart:guest";
 
 
-const CART_COLLECTION =
+const CART_TABLE =
   "carts";
 
 
@@ -120,25 +113,16 @@ function isValidProduct(
     };
 
   return (
-    typeof product.id ===
-      "string" &&
-
-    typeof product.price ===
-      "number" &&
-
+    typeof product.id === "string" &&
+    typeof product.price === "number" &&
     Number.isFinite(
       product.price,
     ) &&
-
-    typeof product.stock ===
-      "number" &&
-
+    typeof product.stock === "number" &&
     Number.isFinite(
       product.stock,
     ) &&
-
-    typeof product.available ===
-      "boolean"
+    typeof product.available === "boolean"
   );
 }
 
@@ -188,11 +172,6 @@ function normalizeCart(
       Number(
         item.quantity,
       );
-
-    /*
-     * Never allow NaN, Infinity or
-     * zero quantities.
-     */
 
     if (
       !Number.isFinite(
@@ -275,6 +254,97 @@ function saveGuestCart(
 
 /*
  * ==========================================================
+ * LOAD CUSTOMER CART FROM SUPABASE
+ * ==========================================================
+ *
+ * Expected Supabase table:
+ *
+ * carts
+ * ├── firebase_uid
+ * ├── items
+ * ├── created_at
+ * └── updated_at
+ *
+ */
+
+async function loadCustomerCart(
+  uid: string,
+): Promise<CartItem[]> {
+  const {
+    data,
+    error,
+  } = await supabase
+    .from(
+      CART_TABLE,
+    )
+    .select(
+      "items",
+    )
+    .eq(
+      "firebase_uid",
+      uid,
+    )
+    .maybeSingle();
+
+  if (error) {
+    throw error;
+  }
+
+  if (
+    !data ||
+    !Array.isArray(
+      data.items,
+    )
+  ) {
+    return [];
+  }
+
+  return normalizeCart(
+    data.items,
+  );
+}
+
+
+/*
+ * ==========================================================
+ * SAVE CUSTOMER CART TO SUPABASE
+ * ==========================================================
+ */
+
+async function saveCustomerCart(
+  uid: string,
+  items: CartItem[],
+): Promise<void> {
+  const {
+    error,
+  } = await supabase
+    .from(
+      CART_TABLE,
+    )
+    .upsert(
+      {
+        firebase_uid:
+          uid,
+
+        items,
+
+        updated_at:
+          new Date().toISOString(),
+      },
+      {
+        onConflict:
+          "firebase_uid",
+      },
+    );
+
+  if (error) {
+    throw error;
+  }
+}
+
+
+/*
+ * ==========================================================
  * PROVIDER
  * ==========================================================
  */
@@ -307,10 +377,7 @@ export function CartProvider({
 
 
   /*
-   * Keeps track of the data that has already been persisted.
-   *
-   * This prevents duplicate writes when React runs effects more
-   * than once in development/StrictMode.
+   * Prevent unnecessary duplicate writes.
    */
 
   const lastPersistedJsonRef =
@@ -321,17 +388,11 @@ export function CartProvider({
    * ==========================================================
    * LOAD CART WHEN ACCOUNT CHANGES
    * ==========================================================
-   *
-   * IMPORTANT:
-   *
-   * We intentionally use getDoc() once instead of onSnapshot().
-   *
-   * This removes a permanent realtime Firestore listener from
-   * every browser tab.
    */
 
   useEffect(() => {
-    let cancelled = false;
+    let cancelled =
+      false;
 
 
     async function loadCart() {
@@ -358,22 +419,31 @@ export function CartProvider({
         const guestItems =
           loadGuestCart();
 
+
         if (cancelled) {
           return;
         }
 
-        lastPersistedJsonRef.current =
+
+        const serialized =
           JSON.stringify(
             guestItems,
           );
+
+
+        lastPersistedJsonRef.current =
+          serialized;
+
 
         setItems(
           guestItems,
         );
 
+
         setInitialized(
           true,
         );
+
 
         console.log(
           "[CART ACCOUNT]",
@@ -383,6 +453,7 @@ export function CartProvider({
           },
         );
 
+
         console.log(
           "[CART GUEST LOAD]",
           {
@@ -390,6 +461,7 @@ export function CartProvider({
               guestItems.length,
           },
         );
+
 
         return;
       }
@@ -406,13 +478,14 @@ export function CartProvider({
 
 
       /*
-       * Never display the previous account's cart while loading
-       * the new account.
+       * Prevent the previous account's cart from
+       * temporarily appearing for the new account.
        */
 
       setItems(
         [],
       );
+
 
       setInitialized(
         false,
@@ -427,99 +500,17 @@ export function CartProvider({
         "[CART ACCOUNT]",
         {
           uid,
+
           email:
             user.email ?? null,
         },
       );
 
 
-      const cartRef =
-        doc(
-          db,
-          CART_COLLECTION,
-          uid,
-        );
-
-
-      console.log(
-        "[CART LOAD]",
-        {
-          uid,
-          path:
-            cartRef.path,
-        },
-      );
-
-
       try {
-        /*
-         * ONE FIRESTORE READ.
-         */
-
-        const snapshot =
-          await getDoc(
-            cartRef,
-          );
-
-
-        if (cancelled) {
-          return;
-        }
-
-
-        /*
-         * ----------------------------------------------------
-         * CART DOES NOT EXIST
-         * ----------------------------------------------------
-         *
-         * Do NOT create an empty cart document here.
-         *
-         * The document will be created only when the customer
-         * actually adds/changes/clears their cart.
-         */
-
-        if (
-          !snapshot.exists()
-        ) {
-          setItems(
-            [],
-          );
-
-          setInitialized(
-            true,
-          );
-
-          lastPersistedJsonRef.current =
-            JSON.stringify(
-              [],
-            );
-
-          console.log(
-            "[CART EMPTY]",
-            {
-              uid,
-              path:
-                cartRef.path,
-            },
-          );
-
-          return;
-        }
-
-
-        /*
-         * ----------------------------------------------------
-         * EXISTING CART
-         * ----------------------------------------------------
-         */
-
-        const data =
-          snapshot.data();
-
-
         const safeItems =
-          normalizeCart(
-            data.items,
+          await loadCustomerCart(
+            uid,
           );
 
 
@@ -528,15 +519,14 @@ export function CartProvider({
         }
 
 
-        /*
-         * Remember what was loaded so the initial load itself
-         * does not immediately trigger another Firestore write.
-         */
-
-        lastPersistedJsonRef.current =
+        const serialized =
           JSON.stringify(
             safeItems,
           );
+
+
+        lastPersistedJsonRef.current =
+          serialized;
 
 
         setItems(
@@ -550,11 +540,9 @@ export function CartProvider({
 
 
         console.log(
-          "[CART LOADED]",
+          "[CART LOADED FROM SUPABASE]",
           {
             uid,
-            path:
-              cartRef.path,
 
             itemCount:
               safeItems.length,
@@ -564,16 +552,6 @@ export function CartProvider({
           },
         );
 
-
-        /*
-         * IMPORTANT:
-         *
-         * We do NOT automatically repair/rewrite the cart here.
-         *
-         * This prevents an unnecessary write every time a cart is
-         * loaded.
-         */
-
       } catch (
         error
       ) {
@@ -581,8 +559,6 @@ export function CartProvider({
           "[CART LOAD FAILED]",
           {
             uid,
-            path:
-              cartRef.path,
             error,
           },
         );
@@ -597,6 +573,11 @@ export function CartProvider({
           [],
         );
 
+
+        /*
+         * Keep false on failure so we do not accidentally
+         * overwrite an existing server cart with [].
+         */
 
         setInitialized(
           false,
@@ -622,10 +603,6 @@ export function CartProvider({
    * ==========================================================
    * PERSIST CART
    * ==========================================================
-   *
-   * This is the only automatic persistence mechanism.
-   *
-   * It writes only when the cart contents actually changed.
    */
 
   useEffect(() => {
@@ -650,7 +627,7 @@ export function CartProvider({
 
 
     /*
-     * Nothing changed since the last successful load/save.
+     * Nothing changed.
      */
 
     if (
@@ -672,8 +649,10 @@ export function CartProvider({
         safeItems,
       );
 
+
       lastPersistedJsonRef.current =
         serialized;
+
 
       console.log(
         "[CART SAVE GUEST]",
@@ -682,6 +661,7 @@ export function CartProvider({
             safeItems.length,
         },
       );
+
 
       return;
     }
@@ -697,49 +677,26 @@ export function CartProvider({
       user.uid;
 
 
-    const cartRef =
-      doc(
-        db,
-        CART_COLLECTION,
-        uid,
-      );
-
-
     let cancelled =
       false;
 
 
     async function persistCustomerCart() {
       try {
-        await setDoc(
-          cartRef,
-          {
-            userId:
-              uid,
-
-            items:
-              safeItems,
-
-            updatedAt:
-              serverTimestamp(),
-          },
-          {
-            merge:
-              true,
-          },
+        await saveCustomerCart(
+          uid,
+          safeItems,
         );
 
 
-        if (
-          cancelled
-        ) {
+        if (cancelled) {
           return;
         }
 
 
         /*
-         * Mark the contents as persisted only after Firestore
-         * accepts the write.
+         * Mark as persisted only after Supabase
+         * successfully accepts the write.
          */
 
         lastPersistedJsonRef.current =
@@ -747,11 +704,9 @@ export function CartProvider({
 
 
         console.log(
-          "[CART SAVE]",
+          "[CART SAVED TO SUPABASE]",
           {
             uid,
-            path:
-              cartRef.path,
 
             itemCount:
               safeItems.length,
@@ -768,8 +723,6 @@ export function CartProvider({
           "[CART SAVE FAILED]",
           {
             uid,
-            path:
-              cartRef.path,
             error,
           },
         );

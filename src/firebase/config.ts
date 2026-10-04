@@ -1,7 +1,7 @@
 import {
-  initializeApp,
-  getApps,
   getApp,
+  getApps,
+  initializeApp,
   type FirebaseApp,
 } from "firebase/app";
 
@@ -10,27 +10,20 @@ import {
   type Auth,
 } from "firebase/auth";
 
-import {
-  getFirestore,
-  type Firestore,
-} from "firebase/firestore";
-
-import {
-  getStorage,
-  type FirebaseStorage,
-} from "firebase/storage";
-
-import {
-  getFunctions,
-  connectFunctionsEmulator,
-  type Functions,
-} from "firebase/functions";
-
 
 /*
  * ==========================================================
  * FIREBASE CONFIGURATION
  * ==========================================================
+ *
+ * Firebase is used ONLY for authentication / identity.
+ *
+ * Application data:
+ *   Supabase
+ *
+ * File storage:
+ *   Supabase Storage
+ *
  */
 
 const firebaseConfig = {
@@ -56,24 +49,14 @@ const firebaseConfig = {
     "1:971410879495:web:bf2c75e3973652dc4de6a2",
 
   measurementId:
-    "G-QE22GMB7YJ",
+    "G-QE22GMB7Y",
 };
 
 
 /*
  * ==========================================================
- * SINGLE FIREBASE APP INSTANCE
+ * SINGLE FIREBASE APP
  * ==========================================================
- *
- * IMPORTANT:
- *
- * Never call initializeApp() anywhere else in src/.
- *
- * This prevents:
- *
- * FirebaseError:
- * Firebase App named '[DEFAULT]' already exists...
- *
  */
 
 export const firebaseApp: FirebaseApp =
@@ -88,75 +71,19 @@ export const firebaseApp: FirebaseApp =
  * ==========================================================
  * FIREBASE AUTHENTICATION
  * ==========================================================
+ *
+ * Firebase handles:
+ *
+ * - Signup
+ * - Login
+ * - Google Login
+ * - Password authentication
+ * - Firebase UID
+ * - Authentication session
+ * - Existing email verification flow
  */
 
 export const auth: Auth =
   getAuth(
     firebaseApp,
   );
-
-
-/*
- * ==========================================================
- * FIRESTORE
- * ==========================================================
- */
-
-export const db: Firestore =
-  getFirestore(
-    firebaseApp,
-  );
-
-
-/*
- * ==========================================================
- * FIREBASE STORAGE
- * ==========================================================
- */
-
-export const storage: FirebaseStorage =
-  getStorage(
-    firebaseApp,
-  );
-
-
-/*
- * ==========================================================
- * FIREBASE CLOUD FUNCTIONS
- * ==========================================================
- *
- * Functions are deployed in the same region as the secure
- * order function.
- *
- */
-
-export const functions: Functions =
-  getFunctions(
-    firebaseApp,
-    "asia-south1",
-  );
-
-
-/*
- * ==========================================================
- * LOCAL FUNCTIONS EMULATOR
- * ==========================================================
- *
- * The emulator is used only while running the Vite
- * development server.
- *
- * Production/Vercel builds use the deployed Cloud Function.
- *
- */
-
-const isDevelopment =
-  import.meta.env.DEV;
-
-
-if (isDevelopment) {
-  connectFunctionsEmulator(
-    functions,
-    "127.0.0.1",
-    5001,
-  );
-}

@@ -31,6 +31,10 @@ import {
   subscribeToCollection,
 } from "../../../services/realtime.service";
 
+import {
+  subscribeToProducts,
+} from "../../../services/product.service";
+
 import type {
   Product,
 } from "../../../types/product";
@@ -49,23 +53,15 @@ import type {
 function formatPrice(
   value: number,
 ): string {
-
   return new Intl.NumberFormat(
     "en-IN",
     {
-      style:
-        "currency",
-
-      currency:
-        "INR",
-
-      maximumFractionDigits:
-        0,
+      style: "currency",
+      currency: "INR",
+      maximumFractionDigits: 0,
     },
   ).format(
-    Number.isFinite(
-      value,
-    )
+    Number.isFinite(value)
       ? value
       : 0,
   );
@@ -75,23 +71,18 @@ function formatPrice(
 function getTimeValue(
   value: unknown,
 ): number {
-
   if (
     value &&
-    typeof value ===
-      "object"
+    typeof value === "object"
   ) {
-
     if (
       "toMillis" in value &&
       typeof (
         value as {
           toMillis?: unknown;
         }
-      ).toMillis ===
-        "function"
+      ).toMillis === "function"
     ) {
-
       return Number(
         (
           value as {
@@ -101,61 +92,34 @@ function getTimeValue(
       );
     }
 
-
-    if (
-      "seconds" in value
-    ) {
-
+    if ("seconds" in value) {
       return (
         Number(
           (
             value as {
               seconds?: unknown;
             }
-          ).seconds ??
-            0,
-        ) *
-        1000
+          ).seconds ?? 0,
+        ) * 1000
       );
     }
   }
 
-
-  if (
-    value instanceof Date
-  ) {
-
+  if (value instanceof Date) {
     return value.getTime();
   }
 
+  if (typeof value === "string") {
+    const parsed = Date.parse(value);
 
-  if (
-    typeof value ===
-      "string"
-  ) {
-
-    const parsed =
-      Date.parse(
-        value,
-      );
-
-
-    return Number.isNaN(
-      parsed,
-    )
+    return Number.isNaN(parsed)
       ? 0
       : parsed;
   }
 
-
-  if (
-    typeof value ===
-      "number"
-  ) {
-
+  if (typeof value === "number") {
     return value;
   }
-
 
   return 0;
 }
@@ -164,34 +128,18 @@ function getTimeValue(
 function formatDate(
   value: unknown,
 ): string {
+  const time = getTimeValue(value);
 
-  const time =
-    getTimeValue(
-      value,
-    );
-
-
-  if (
-    !time
-  ) {
-
+  if (!time) {
     return "—";
   }
 
-
-  return new Date(
-    time,
-  ).toLocaleDateString(
+  return new Date(time).toLocaleDateString(
     "en-IN",
     {
-      day:
-        "numeric",
-
-      month:
-        "short",
-
-      year:
-        "numeric",
+      day: "numeric",
+      month: "short",
+      year: "numeric",
     },
   );
 }
@@ -207,45 +155,39 @@ function normalizeProduct(
   id: string,
   data: Partial<Product>,
 ): Product {
-
   const images =
-    Array.isArray(
-      data.images,
-    )
+    Array.isArray(data.images)
       ? data.images.filter(
           (
             item,
           ): item is string =>
-            typeof item ===
-              "string" &&
-            item.trim().length >
-              0,
+            typeof item === "string" &&
+            item.trim().length > 0,
         )
       : [];
 
-
   const image =
-    typeof data.image ===
-      "string"
+    typeof data.image === "string"
       ? data.image
       : undefined;
 
-
   const imageUrl =
-    typeof data.imageUrl ===
-      "string"
+    typeof data.imageUrl === "string"
       ? data.imageUrl
       : image;
 
+  const thumbnailImage =
+    typeof data.thumbnailImage === "string"
+      ? data.thumbnailImage
+      : undefined;
 
   const primaryImage =
+    thumbnailImage ||
     imageUrl ||
     image ||
     images[0];
 
-
   return {
-
     id,
 
     name:
@@ -261,8 +203,7 @@ function normalizeProduct(
       "Electronics",
 
     price:
-      typeof data.price ===
-        "number"
+      typeof data.price === "number"
         ? data.price
         : 0,
 
@@ -271,8 +212,7 @@ function normalizeProduct(
       "INR",
 
     stock:
-      typeof data.stock ===
-        "number"
+      typeof data.stock === "number"
         ? data.stock
         : 0,
 
@@ -303,8 +243,15 @@ function normalizeProduct(
       primaryImage
         ? [
             primaryImage,
+            ...images.filter(
+              (item) =>
+                item !== primaryImage,
+            ),
           ]
-        : [],
+        : images,
+
+    thumbnailImage:
+      primaryImage,
 
     slug:
       data.slug,
@@ -326,7 +273,6 @@ function normalizeProduct(
 
     updatedAt:
       data.updatedAt,
-
   };
 }
 
@@ -341,7 +287,6 @@ function normalizeOrder(
   id: string,
   data: Partial<Order>,
 ): Order {
-
   return {
     ...(data as Order),
 
@@ -356,52 +301,34 @@ function normalizeOrder(
       "",
 
     items:
-      Array.isArray(
-        data.items,
-      )
+      Array.isArray(data.items)
         ? data.items
         : [],
 
     shippingAddress:
       data.shippingAddress ??
       {
-        name:
-          "",
-
-        phone:
-          "",
-
-        email:
-          "",
-
-        address:
-          "",
-
-        city:
-          "",
-
-        state:
-          "",
-
-        pincode:
-          "",
+        name: "",
+        phone: "",
+        email: "",
+        address: "",
+        city: "",
+        state: "",
+        pincode: "",
       },
 
     subtotal:
-      typeof data.subtotal ===
-        "number"
+      typeof data.subtotal === "number"
         ? data.subtotal
         : 0,
 
     shipping:
-      typeof data.shipping ===
-        "number"
+      typeof data.shipping === "number"
         ? data.shipping
         : 0,
 
     total:
-      typeof data.total ===
-        "number"
+      typeof data.total === "number"
         ? data.total
         : 0,
 
@@ -420,14 +347,13 @@ function normalizeOrder(
     paymentMethod:
       data.paymentMethod ??
       "pending",
-
   };
 }
 
 
 /*
  * ==========================================================
- * SIMPLE FIREBASE RECORD
+ * SIMPLE RECORD
  * ==========================================================
  */
 
@@ -448,306 +374,182 @@ interface SimpleRecord {
  */
 
 export default function AdminDashboard() {
-
-  /*
-   * ========================================================
-   * PRODUCT STATE
-   * ========================================================
-   */
-
   const [
     products,
     setProducts,
-  ] =
-    useState<Product[]>(
-      [],
-    );
-
-
-  /*
-   * ========================================================
-   * ORDER STATE
-   * ========================================================
-   */
+  ] = useState<Product[]>([]);
 
   const [
     orders,
     setOrders,
-  ] =
-    useState<Order[]>(
-      [],
-    );
-
-
-  /*
-   * ========================================================
-   * CUSTOMER STATE
-   * ========================================================
-   */
+  ] = useState<Order[]>([]);
 
   const [
     customers,
     setCustomers,
-  ] =
-    useState<
-      SimpleRecord[]
-    >([]);
-
-
-  /*
-   * ========================================================
-   * ENQUIRY STATE
-   * ========================================================
-   */
+  ] = useState<SimpleRecord[]>([]);
 
   const [
     enquiries,
     setEnquiries,
-  ] =
-    useState<
-      SimpleRecord[]
-    >([]);
-
-
-  /*
-   * ========================================================
-   * 3D PRINTING STATE
-   * ========================================================
-   */
+  ] = useState<SimpleRecord[]>([]);
 
   const [
     printingOrders,
     setPrintingOrders,
-  ] =
-    useState<
-      SimpleRecord[]
-    >([]);
-
-
-  /*
-   * ========================================================
-   * LOADING
-   * ========================================================
-   */
+  ] = useState<SimpleRecord[]>([]);
 
   const [
     loading,
     setLoading,
-  ] =
-    useState<boolean>(
-      true,
-    );
-
-
-  /*
-   * ========================================================
-   * REFRESHING
-   * ========================================================
-   */
+  ] = useState<boolean>(true);
 
   const [
     refreshing,
     setRefreshing,
-  ] =
-    useState<boolean>(
-      false,
-    );
-
-
-  /*
-   * ========================================================
-   * ERROR
-   * ========================================================
-   */
+  ] = useState<boolean>(false);
 
   const [
     error,
     setError,
-  ] =
-    useState<string>(
-      "",
-    );
+  ] = useState<string>("");
 
 
   /*
    * ========================================================
-   * REALTIME PRODUCTS
+   * REALTIME PRODUCTS — SUPABASE
    * ========================================================
    */
 
-  useEffect(
-    () => {
-
-      const unsubscribe =
-        subscribeToCollection<
-          Partial<Product>
-        >(
-          "products",
-
-          (
-            items,
-          ) => {
-
-            const nextProducts =
-              items.map(
-                (
+  useEffect(() => {
+    const unsubscribe =
+      subscribeToProducts(
+        (items) => {
+          const nextProducts =
+            items.map(
+              (item) =>
+                normalizeProduct(
+                  item.id,
                   item,
-                ) =>
-                  normalizeProduct(
-                    item.id,
-                    item.data,
-                  ),
-              );
-
-
-            nextProducts.sort(
-              (
-                first,
-                second,
-              ) =>
-                getTimeValue(
-                  second.createdAt,
-                ) -
-                getTimeValue(
-                  first.createdAt,
                 ),
             );
 
+          nextProducts.sort(
+            (
+              first,
+              second,
+            ) =>
+              getTimeValue(
+                second.createdAt,
+              ) -
+              getTimeValue(
+                first.createdAt,
+              ),
+          );
 
-            setProducts(
-              nextProducts,
-            );
+          setProducts(
+            nextProducts,
+          );
 
+          setLoading(
+            false,
+          );
 
-            setLoading(
-              false,
-            );
+          setRefreshing(
+            false,
+          );
 
+          setError("");
+        },
 
-            setRefreshing(
-              false,
-            );
+        (listenerError) => {
+          console.error(
+            "Supabase realtime products failed:",
+            listenerError,
+          );
 
-          },
+          setError(
+            listenerError instanceof Error
+              ? listenerError.message
+              : "Unable to load products.",
+          );
 
-          {
-            onError: (
-              listenerError,
-            ) => {
+          setLoading(
+            false,
+          );
 
-              console.error(
-                "Realtime products failed:",
-                listenerError,
-              );
+          setRefreshing(
+            false,
+          );
+        },
+      );
 
-
-              setError(
-                listenerError instanceof Error
-                  ? listenerError.message
-                  : "Unable to load products.",
-              );
-
-
-              setLoading(
-                false,
-              );
-
-
-              setRefreshing(
-                false,
-              );
-
-            },
-          },
-        );
-
-
-      return () => {
-
-        unsubscribe();
-
-      };
-
-    },
-    [],
-  );
+    return () => {
+      unsubscribe();
+    };
+  }, []);
 
 
   /*
    * ========================================================
    * REALTIME ORDERS
    * ========================================================
+   *
+   * Temporary:
+   * Orders are migrated later.
    */
 
-  useEffect(
-    () => {
+  useEffect(() => {
+    const unsubscribe =
+      subscribeToCollection<
+        Partial<Order>
+      >(
+        "orders",
 
-      const unsubscribe =
-        subscribeToCollection<
-          Partial<Order>
-        >(
-          "orders",
-
-          (
-            items,
-          ) => {
-
-            const nextOrders =
-              items.map(
-                (
-                  item,
-                ) =>
-                  normalizeOrder(
-                    item.id,
-                    item.data,
-                  ),
-              );
-
-
-            nextOrders.sort(
-              (
-                first,
-                second,
-              ) =>
-                getTimeValue(
-                  second.createdAt,
-                ) -
-                getTimeValue(
-                  first.createdAt,
+        (items) => {
+          const nextOrders =
+            items.map(
+              (item) =>
+                normalizeOrder(
+                  item.id,
+                  item.data,
                 ),
             );
 
+          nextOrders.sort(
+            (
+              first,
+              second,
+            ) =>
+              getTimeValue(
+                second.createdAt,
+              ) -
+              getTimeValue(
+                first.createdAt,
+              ),
+          );
 
-            setOrders(
-              nextOrders,
-            );
+          setOrders(
+            nextOrders,
+          );
+        },
 
-          },
-
-          {
-            onError: (
+        {
+          onError: (
+            listenerError,
+          ) => {
+            console.error(
+              "Realtime orders failed:",
               listenerError,
-            ) => {
-
-              console.error(
-                "Realtime orders failed:",
-                listenerError,
-              );
-
-            },
+            );
           },
-        );
+        },
+      );
 
-
-      return () => {
-
-        unsubscribe();
-
-      };
-
-    },
-    [],
-  );
+    return () => {
+      unsubscribe();
+    };
+  }, []);
 
 
   /*
@@ -756,52 +558,35 @@ export default function AdminDashboard() {
    * ========================================================
    */
 
-  useEffect(
-    () => {
+  useEffect(() => {
+    const unsubscribe =
+      subscribeToCollection<
+        Record<string, unknown>
+      >(
+        "users",
 
-      const unsubscribe =
-        subscribeToCollection<
-          Record<
-            string,
-            unknown
-          >
-        >(
-          "users",
-
-          (
+        (items) => {
+          setCustomers(
             items,
+          );
+        },
+
+        {
+          onError: (
+            listenerError,
           ) => {
-
-            setCustomers(
-              items,
-            );
-
-          },
-
-          {
-            onError: (
+            console.error(
+              "Realtime customers failed:",
               listenerError,
-            ) => {
-
-              console.error(
-                "Realtime customers failed:",
-                listenerError,
-              );
-
-            },
+            );
           },
-        );
+        },
+      );
 
-
-      return () => {
-
-        unsubscribe();
-
-      };
-
-    },
-    [],
-  );
+    return () => {
+      unsubscribe();
+    };
+  }, []);
 
 
   /*
@@ -810,52 +595,35 @@ export default function AdminDashboard() {
    * ========================================================
    */
 
-  useEffect(
-    () => {
+  useEffect(() => {
+    const unsubscribe =
+      subscribeToCollection<
+        Record<string, unknown>
+      >(
+        "contacts",
 
-      const unsubscribe =
-        subscribeToCollection<
-          Record<
-            string,
-            unknown
-          >
-        >(
-          "contacts",
-
-          (
+        (items) => {
+          setEnquiries(
             items,
+          );
+        },
+
+        {
+          onError: (
+            listenerError,
           ) => {
-
-            setEnquiries(
-              items,
-            );
-
-          },
-
-          {
-            onError: (
+            console.error(
+              "Realtime enquiries failed:",
               listenerError,
-            ) => {
-
-              console.error(
-                "Realtime enquiries failed:",
-                listenerError,
-              );
-
-            },
+            );
           },
-        );
+        },
+      );
 
-
-      return () => {
-
-        unsubscribe();
-
-      };
-
-    },
-    [],
-  );
+    return () => {
+      unsubscribe();
+    };
+  }, []);
 
 
   /*
@@ -864,78 +632,56 @@ export default function AdminDashboard() {
    * ========================================================
    */
 
-  useEffect(
-    () => {
+  useEffect(() => {
+    const unsubscribe =
+      subscribeToCollection<
+        Record<string, unknown>
+      >(
+        "threeDPrintOrders",
 
-      const unsubscribe =
-        subscribeToCollection<
-          Record<
-            string,
-            unknown
-          >
-        >(
-          "threeDPrintOrders",
-
-          (
+        (items) => {
+          setPrintingOrders(
             items,
+          );
+        },
+
+        {
+          onError: (
+            listenerError,
           ) => {
-
-            setPrintingOrders(
-              items,
-            );
-
-          },
-
-          {
-            onError: (
+            console.error(
+              "Realtime 3D printing failed:",
               listenerError,
-            ) => {
-
-              console.error(
-                "Realtime 3D printing failed:",
-                listenerError,
-              );
-
-            },
+            );
           },
-        );
+        },
+      );
 
-
-      return () => {
-
-        unsubscribe();
-
-      };
-
-    },
-    [],
-  );
+    return () => {
+      unsubscribe();
+    };
+  }, []);
 
 
   /*
    * ========================================================
-   * MANUAL REFRESH FEEDBACK
+   * REFRESH
    * ========================================================
    */
 
   function handleRefresh() {
-
     setRefreshing(
       true,
     );
 
-
     window.setTimeout(
       () => {
-
         setRefreshing(
           false,
         );
-
       },
       500,
     );
-
   }
 
 
@@ -949,13 +695,10 @@ export default function AdminDashboard() {
     useMemo(
       () =>
         products.filter(
-          (
-            product,
-          ) =>
+          (product) =>
             product.available !==
             false,
         ).length,
-
       [
         products,
       ],
@@ -966,14 +709,11 @@ export default function AdminDashboard() {
     useMemo(
       () =>
         products.filter(
-          (
-            product,
-          ) =>
+          (product) =>
             Boolean(
               product.featured,
             ),
         ).length,
-
       [
         products,
       ],
@@ -994,10 +734,8 @@ export default function AdminDashboard() {
                 product.price,
               ) || 0
             ),
-
           0,
         ),
-
       [
         products,
       ],
@@ -1011,7 +749,6 @@ export default function AdminDashboard() {
           0,
           6,
         ),
-
       [
         products,
       ],
@@ -1028,13 +765,10 @@ export default function AdminDashboard() {
     useMemo(
       () =>
         orders.filter(
-          (
-            order,
-          ) =>
+          (order) =>
             order.status !==
             "cancelled",
         ),
-
       [
         orders,
       ],
@@ -1055,10 +789,8 @@ export default function AdminDashboard() {
                 order.total,
               ) || 0
             ),
-
           0,
         ),
-
       [
         nonCancelledOrders,
       ],
@@ -1069,13 +801,10 @@ export default function AdminDashboard() {
     useMemo(
       () =>
         orders.filter(
-          (
-            order,
-          ) =>
+          (order) =>
             order.status ===
             "pending",
         ).length,
-
       [
         orders,
       ],
@@ -1086,15 +815,12 @@ export default function AdminDashboard() {
     useMemo(
       () =>
         orders.filter(
-          (
-            order,
-          ) =>
+          (order) =>
             order.status ===
               "processing" ||
             order.status ===
               "confirmed",
         ).length,
-
       [
         orders,
       ],
@@ -1105,13 +831,10 @@ export default function AdminDashboard() {
     useMemo(
       () =>
         orders.filter(
-          (
-            order,
-          ) =>
+          (order) =>
             order.status ===
             "shipped",
         ).length,
-
       [
         orders,
       ],
@@ -1122,13 +845,10 @@ export default function AdminDashboard() {
     useMemo(
       () =>
         orders.filter(
-          (
-            order,
-          ) =>
+          (order) =>
             order.status ===
             "delivered",
         ).length,
-
       [
         orders,
       ],
@@ -1138,9 +858,7 @@ export default function AdminDashboard() {
   const recentOrders =
     useMemo(
       () =>
-        [
-          ...orders,
-        ]
+        [...orders]
           .sort(
             (
               first,
@@ -1157,7 +875,6 @@ export default function AdminDashboard() {
             0,
             6,
           ),
-
       [
         orders,
       ],
@@ -1174,14 +891,11 @@ export default function AdminDashboard() {
     useMemo(
       () =>
         enquiries.filter(
-          (
-            enquiry,
-          ) =>
+          (enquiry) =>
             enquiry.data.status ===
               "new" ||
             !enquiry.data.status,
         ).length,
-
       [
         enquiries,
       ],
@@ -1198,17 +912,12 @@ export default function AdminDashboard() {
     useMemo(
       () =>
         printingOrders.filter(
-          (
-            item,
-          ) => {
-
+          (item) => {
             const status =
               String(
                 item.data.status ??
                 "pending",
-              )
-                .toLowerCase();
-
+              ).toLowerCase();
 
             return (
               status ===
@@ -1216,10 +925,8 @@ export default function AdminDashboard() {
               status ===
                 "new"
             );
-
           },
         ).length,
-
       [
         printingOrders,
       ],
@@ -1230,17 +937,12 @@ export default function AdminDashboard() {
     useMemo(
       () =>
         printingOrders.filter(
-          (
-            item,
-          ) => {
-
+          (item) => {
             const status =
               String(
                 item.data.status ??
                 "",
-              )
-                .toLowerCase();
-
+              ).toLowerCase();
 
             return (
               status ===
@@ -1252,10 +954,8 @@ export default function AdminDashboard() {
               status ===
                 "processing"
             );
-
           },
         ).length,
-
       [
         printingOrders,
       ],
@@ -1268,57 +968,42 @@ export default function AdminDashboard() {
    * ========================================================
    */
 
-  if (
-    loading
-  ) {
-
+  if (loading) {
     return (
-
       <div className="space-y-8">
 
         <div>
-
           <div className="h-3 w-28 animate-pulse rounded bg-neutral-200" />
 
           <div className="mt-3 h-10 w-64 animate-pulse rounded bg-neutral-200" />
 
           <div className="mt-3 h-4 w-96 max-w-full animate-pulse rounded bg-neutral-100" />
-
         </div>
 
 
         <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-
-          {
-            Array.from({
-              length: 4,
-            }).map(
-              (
-                _item,
-                index,
-              ) => (
-
-                <div
-                  key={
-                    index
-                  }
-
-                  className="h-32 animate-pulse rounded-3xl bg-neutral-100"
-                />
-
-              ),
-            )
-          }
-
+          {Array.from({
+            length: 4,
+          }).map(
+            (
+              _item,
+              index,
+            ) => (
+              <div
+                key={
+                  index
+                }
+                className="h-32 animate-pulse rounded-3xl bg-neutral-100"
+              />
+            ),
+          )}
         </div>
 
 
         <div className="h-96 animate-pulse rounded-3xl bg-neutral-100" />
 
       </div>
-
     );
-
   }
 
 
@@ -1329,12 +1014,9 @@ export default function AdminDashboard() {
    */
 
   return (
-
     <div className="space-y-8">
 
-      {/* ====================================================
-          HEADER
-      ===================================================== */}
+      {/* HEADER */}
 
       <div className="flex flex-col gap-5 xl:flex-row xl:items-end xl:justify-between">
 
@@ -1371,15 +1053,12 @@ export default function AdminDashboard() {
 
           <button
             type="button"
-
             onClick={
               handleRefresh
             }
-
             disabled={
               refreshing
             }
-
             className="inline-flex items-center justify-center gap-2 rounded-full border border-neutral-200 bg-white px-5 py-3 text-sm font-bold text-neutral-700 transition hover:border-[#D4AF37] hover:text-[#D4AF37] disabled:opacity-50"
           >
 
@@ -1405,29 +1084,21 @@ export default function AdminDashboard() {
       </div>
 
 
-      {/* ====================================================
-          ERROR
-      ===================================================== */}
+      {/* ERROR */}
 
       {error && (
-
         <div
           role="alert"
           className="rounded-2xl border border-red-200 bg-red-50 px-5 py-4 text-sm text-red-700"
         >
-
           {
             error
           }
-
         </div>
-
       )}
 
 
-      {/* ====================================================
-          TOP BUSINESS STATS
-      ===================================================== */}
+      {/* TOP BUSINESS STATS */}
 
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
 
@@ -1445,13 +1116,11 @@ export default function AdminDashboard() {
 
 
               <p className="mt-3 text-3xl font-black text-neutral-950">
-
                 {
                   formatPrice(
                     totalRevenue,
                   )
                 }
-
               </p>
 
 
@@ -1489,11 +1158,9 @@ export default function AdminDashboard() {
 
 
               <p className="mt-3 text-3xl font-black text-neutral-950">
-
                 {
                   orders.length
                 }
-
               </p>
 
 
@@ -1531,11 +1198,9 @@ export default function AdminDashboard() {
 
 
               <p className="mt-3 text-3xl font-black text-neutral-950">
-
                 {
                   customers.length
                 }
-
               </p>
 
 
@@ -1573,11 +1238,9 @@ export default function AdminDashboard() {
 
 
               <p className="mt-3 text-3xl font-black text-neutral-950">
-
                 {
                   products.length
                 }
-
               </p>
 
 
@@ -1603,9 +1266,7 @@ export default function AdminDashboard() {
       </div>
 
 
-      {/* ====================================================
-          ATTENTION CARDS
-      ===================================================== */}
+      {/* ATTENTION CARDS */}
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
 
@@ -1621,7 +1282,6 @@ export default function AdminDashboard() {
               className="text-amber-600"
             />
 
-
             <ArrowRight
               size={17}
               className="text-amber-600 transition group-hover:translate-x-1"
@@ -1636,11 +1296,9 @@ export default function AdminDashboard() {
 
 
           <p className="mt-1 text-2xl font-black text-neutral-950">
-
             {
               pendingOrders
             }
-
           </p>
 
         </Link>
@@ -1658,7 +1316,6 @@ export default function AdminDashboard() {
               className="text-blue-600"
             />
 
-
             <ArrowRight
               size={17}
               className="text-blue-600 transition group-hover:translate-x-1"
@@ -1673,11 +1330,9 @@ export default function AdminDashboard() {
 
 
           <p className="mt-1 text-2xl font-black text-neutral-950">
-
             {
               processingOrders
             }
-
           </p>
 
         </Link>
@@ -1695,7 +1350,6 @@ export default function AdminDashboard() {
               className="text-red-600"
             />
 
-
             <ArrowRight
               size={17}
               className="text-red-600 transition group-hover:translate-x-1"
@@ -1710,11 +1364,9 @@ export default function AdminDashboard() {
 
 
           <p className="mt-1 text-2xl font-black text-neutral-950">
-
             {
               newEnquiries
             }
-
           </p>
 
         </Link>
@@ -1732,7 +1384,6 @@ export default function AdminDashboard() {
               className="text-purple-600"
             />
 
-
             <ArrowRight
               size={17}
               className="text-purple-600 transition group-hover:translate-x-1"
@@ -1747,11 +1398,9 @@ export default function AdminDashboard() {
 
 
           <p className="mt-1 text-2xl font-black text-neutral-950">
-
             {
               newPrintingRequests
             }
-
           </p>
 
 
@@ -1764,9 +1413,7 @@ export default function AdminDashboard() {
       </div>
 
 
-      {/* ====================================================
-          ORDER STATUS
-      ===================================================== */}
+      {/* ORDER STATUS */}
 
       <section className="rounded-3xl border border-neutral-200 bg-white p-6 shadow-sm sm:p-7">
 
@@ -1790,13 +1437,11 @@ export default function AdminDashboard() {
             to="/admin/orders"
             className="inline-flex items-center gap-2 text-xs font-bold text-neutral-500 transition hover:text-[#D4AF37]"
           >
-
             View all orders
 
             <ArrowRight
               size={14}
             />
-
           </Link>
 
         </div>
@@ -1811,11 +1456,9 @@ export default function AdminDashboard() {
               className="text-amber-600"
             />
 
-
             <p className="mt-4 text-xs font-bold uppercase tracking-wider text-amber-700">
               Pending
             </p>
-
 
             <p className="mt-1 text-2xl font-black">
               {
@@ -1833,11 +1476,9 @@ export default function AdminDashboard() {
               className="text-blue-600"
             />
 
-
             <p className="mt-4 text-xs font-bold uppercase tracking-wider text-blue-700">
               Processing
             </p>
-
 
             <p className="mt-1 text-2xl font-black">
               {
@@ -1855,11 +1496,9 @@ export default function AdminDashboard() {
               className="text-violet-600"
             />
 
-
             <p className="mt-4 text-xs font-bold uppercase tracking-wider text-violet-700">
               Shipped
             </p>
-
 
             <p className="mt-1 text-2xl font-black">
               {
@@ -1877,11 +1516,9 @@ export default function AdminDashboard() {
               className="text-green-600"
             />
 
-
             <p className="mt-4 text-xs font-bold uppercase tracking-wider text-green-700">
               Delivered
             </p>
-
 
             <p className="mt-1 text-2xl font-black">
               {
@@ -1896,9 +1533,7 @@ export default function AdminDashboard() {
       </section>
 
 
-      {/* ====================================================
-          RECENT ORDERS
-      ===================================================== */}
+      {/* RECENT ORDERS */}
 
       <section className="overflow-hidden rounded-3xl border border-neutral-200 bg-white shadow-sm">
 
@@ -1912,7 +1547,7 @@ export default function AdminDashboard() {
 
 
             <p className="mt-1 text-xs text-neutral-500">
-              Live orders from Firestore.
+              Live orders.
             </p>
 
           </div>
@@ -1960,107 +1595,98 @@ export default function AdminDashboard() {
 
           <div className="divide-y divide-neutral-100">
 
-            {
-              recentOrders.map(
-                (
-                  order,
-                ) => (
+            {recentOrders.map(
+              (
+                order,
+              ) => (
 
-                  <Link
-                    key={
-                      order.id
-                    }
+                <Link
+                  key={
+                    order.id
+                  }
+                  to="/admin/orders"
+                  className="flex flex-col gap-4 px-6 py-5 transition hover:bg-neutral-50 sm:flex-row sm:items-center sm:justify-between"
+                >
 
-                    to="/admin/orders"
+                  <div className="flex min-w-0 items-center gap-4">
 
-                    className="flex flex-col gap-4 px-6 py-5 transition hover:bg-neutral-50 sm:flex-row sm:items-center sm:justify-between"
-                  >
+                    <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-[#D4AF37]/10 text-[#D4AF37]">
 
-                    <div className="flex min-w-0 items-center gap-4">
-
-                      <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-[#D4AF37]/10 text-[#D4AF37]">
-
-                        <ShoppingBag
-                          size={18}
-                        />
-
-                      </div>
-
-
-                      <div className="min-w-0">
-
-                        <p className="truncate text-sm font-bold text-neutral-950">
-
-                          #
-
-                          {
-                            order.id.slice(
-                              0,
-                              10,
-                            )
-                          }
-
-                        </p>
-
-
-                        <p className="mt-1 truncate text-xs text-neutral-400">
-
-                          {
-                            order.userEmail ||
-                            order.shippingAddress.email ||
-                            "No email"
-                          }
-
-                        </p>
-
-                      </div>
+                      <ShoppingBag
+                        size={18}
+                      />
 
                     </div>
 
 
-                    <div className="flex items-center gap-6">
+                    <div className="min-w-0">
 
-                      <div className="text-right">
+                      <p className="truncate text-sm font-bold text-neutral-950">
 
-                        <p className="font-black text-neutral-950">
-
-                          {
-                            formatPrice(
-                              order.total,
-                            )
-                          }
-
-                        </p>
-
-
-                        <p className="mt-1 text-[10px] text-neutral-400">
-
-                          {
-                            formatDate(
-                              order.createdAt,
-                            )
-                          }
-
-                        </p>
-
-                      </div>
-
-
-                      <span className="rounded-full bg-neutral-100 px-3 py-1.5 text-[10px] font-bold capitalize text-neutral-600">
-
+                        #
                         {
-                          order.status
+                          order.id.slice(
+                            0,
+                            10,
+                          )
                         }
 
-                      </span>
+                      </p>
+
+
+                      <p className="mt-1 truncate text-xs text-neutral-400">
+
+                        {
+                          order.userEmail ||
+                          order.shippingAddress.email ||
+                          "No email"
+                        }
+
+                      </p>
 
                     </div>
 
-                  </Link>
+                  </div>
 
-                ),
-              )
-            }
+
+                  <div className="flex items-center gap-6">
+
+                    <div className="text-right">
+
+                      <p className="font-black text-neutral-950">
+                        {
+                          formatPrice(
+                            order.total,
+                          )
+                        }
+                      </p>
+
+
+                      <p className="mt-1 text-[10px] text-neutral-400">
+                        {
+                          formatDate(
+                            order.createdAt,
+                          )
+                        }
+                      </p>
+
+                    </div>
+
+
+                    <span className="rounded-full bg-neutral-100 px-3 py-1.5 text-[10px] font-bold capitalize text-neutral-600">
+
+                      {
+                        order.status
+                      }
+
+                    </span>
+
+                  </div>
+
+                </Link>
+
+              ),
+            )}
 
           </div>
 
@@ -2069,9 +1695,7 @@ export default function AdminDashboard() {
       </section>
 
 
-      {/* ====================================================
-          3D PRINTING + ENQUIRIES
-      ===================================================== */}
+      {/* 3D PRINTING + ENQUIRIES */}
 
       <div className="grid gap-6 lg:grid-cols-2">
 
@@ -2113,11 +1737,9 @@ export default function AdminDashboard() {
 
 
               <p className="mt-2 text-3xl font-black">
-
                 {
                   newPrintingRequests
                 }
-
               </p>
 
             </div>
@@ -2131,11 +1753,9 @@ export default function AdminDashboard() {
 
 
               <p className="mt-2 text-3xl font-black">
-
                 {
                   activePrintingOrders
                 }
-
               </p>
 
             </div>
@@ -2195,11 +1815,9 @@ export default function AdminDashboard() {
 
 
             <p className="mt-2 text-4xl font-black">
-
               {
                 newEnquiries
               }
-
             </p>
 
 
@@ -2208,11 +1826,9 @@ export default function AdminDashboard() {
               Total enquiries:{" "}
 
               <span className="font-bold text-neutral-800">
-
                 {
                   enquiries.length
                 }
-
               </span>
 
             </p>
@@ -2238,9 +1854,7 @@ export default function AdminDashboard() {
       </div>
 
 
-      {/* ====================================================
-          PRODUCT OVERVIEW
-      ===================================================== */}
+      {/* PRODUCT OVERVIEW */}
 
       <section className="overflow-hidden rounded-3xl border border-neutral-200 bg-white shadow-sm">
 
@@ -2254,7 +1868,7 @@ export default function AdminDashboard() {
 
 
             <p className="mt-1 text-xs text-neutral-500">
-              Products currently synchronized with Firestore in real time.
+              Products currently synchronized with Supabase in real time.
             </p>
 
           </div>
@@ -2286,11 +1900,9 @@ export default function AdminDashboard() {
 
 
             <p className="mt-2 text-2xl font-black">
-
               {
                 activeProducts
               }
-
             </p>
 
           </div>
@@ -2304,11 +1916,9 @@ export default function AdminDashboard() {
 
 
             <p className="mt-2 text-2xl font-black">
-
               {
                 featuredProducts
               }
-
             </p>
 
           </div>
@@ -2322,13 +1932,11 @@ export default function AdminDashboard() {
 
 
             <p className="mt-2 text-2xl font-black">
-
               {
                 formatPrice(
                   catalogueValue,
                 )
               }
-
             </p>
 
           </div>
@@ -2361,9 +1969,7 @@ export default function AdminDashboard() {
               to="/admin/products/new"
               className="mt-5 inline-flex rounded-full bg-[#D4AF37] px-6 py-3 text-sm font-bold text-white transition hover:bg-[#b99622]"
             >
-
               Add Product
-
             </Link>
 
           </div>
@@ -2372,133 +1978,116 @@ export default function AdminDashboard() {
 
           <div className="divide-y divide-neutral-100">
 
-            {
-              latestProducts.map(
-                (
-                  product,
-                ) => (
+            {latestProducts.map(
+              (
+                product,
+              ) => (
 
-                  <div
-                    key={
-                      product.id
-                    }
+                <div
+                  key={
+                    product.id
+                  }
+                  className="flex flex-col gap-4 p-6 sm:flex-row sm:items-center sm:justify-between"
+                >
 
-                    className="flex flex-col gap-4 p-6 sm:flex-row sm:items-center sm:justify-between"
-                  >
+                  <div className="flex min-w-0 items-center gap-4">
 
-                    <div className="flex min-w-0 items-center gap-4">
+                    <div className="flex h-14 w-14 shrink-0 items-center justify-center overflow-hidden rounded-2xl bg-neutral-100">
 
-                      <div className="flex h-14 w-14 shrink-0 items-center justify-center overflow-hidden rounded-2xl bg-neutral-100">
+                      {product.image ? (
 
-                        {product.image ? (
-
-                          <img
-                            src={
-                              product.image
-                            }
-
-                            alt={
-                              product.name
-                            }
-
-                            className="h-full w-full object-contain p-2"
-                          />
-
-                        ) : (
-
-                          <Boxes
-                            size={20}
-                            className="text-[#D4AF37]"
-                          />
-
-                        )}
-
-                      </div>
-
-
-                      <div className="min-w-0">
-
-                        <p className="truncate font-bold text-neutral-950">
-
-                          {
+                        <img
+                          src={
+                            product.image
+                          }
+                          alt={
                             product.name
                           }
+                          className="h-full w-full object-contain p-2"
+                        />
 
-                        </p>
+                      ) : (
 
-
-                        <p className="mt-1 text-xs text-neutral-400">
-
-                          {
-                            product.category
-                          }
-
-                        </p>
-
-                      </div>
-
-                    </div>
-
-
-                    <div className="flex items-center gap-6">
-
-                      <div className="text-right">
-
-                        <p className="font-black">
-
-                          {
-                            formatPrice(
-                              product.price ??
-                              0,
-                            )
-                          }
-
-                        </p>
-
-
-                        <p className="text-[10px] text-neutral-400">
-                          Price
-                        </p>
-
-                      </div>
-
-
-                      <div className="text-right">
-
-                        <p className="font-black">
-
-                          {
-                            product.stock ??
-                            0
-                          }
-
-                        </p>
-
-
-                        <p className="text-[10px] text-neutral-400">
-                          Stock
-                        </p>
-
-                      </div>
-
-
-                      {product.featured && (
-
-                        <span className="rounded-full bg-[#D4AF37]/10 px-3 py-1.5 text-[10px] font-bold text-[#9b7e1d]">
-
-                          Featured
-
-                        </span>
+                        <Boxes
+                          size={20}
+                          className="text-[#D4AF37]"
+                        />
 
                       )}
 
                     </div>
 
+
+                    <div className="min-w-0">
+
+                      <p className="truncate font-bold text-neutral-950">
+                        {
+                          product.name
+                        }
+                      </p>
+
+
+                      <p className="mt-1 text-xs text-neutral-400">
+                        {
+                          product.category
+                        }
+                      </p>
+
+                    </div>
+
                   </div>
 
-                ),
-              )
-            }
+
+                  <div className="flex items-center gap-6">
+
+                    <div className="text-right">
+
+                      <p className="font-black">
+                        {
+                          formatPrice(
+                            product.price ?? 0,
+                          )
+                        }
+                      </p>
+
+
+                      <p className="text-[10px] text-neutral-400">
+                        Price
+                      </p>
+
+                    </div>
+
+
+                    <div className="text-right">
+
+                      <p className="font-black">
+                        {
+                          product.stock ?? 0
+                        }
+                      </p>
+
+
+                      <p className="text-[10px] text-neutral-400">
+                        Stock
+                      </p>
+
+                    </div>
+
+
+                    {product.featured && (
+
+                      <span className="rounded-full bg-[#D4AF37]/10 px-3 py-1.5 text-[10px] font-bold text-[#9b7e1d]">
+                        Featured
+                      </span>
+
+                    )}
+
+                  </div>
+
+                </div>
+
+              ),
+            )}
 
           </div>
 
@@ -2507,9 +2096,7 @@ export default function AdminDashboard() {
       </section>
 
 
-      {/* ====================================================
-          QUICK ACTIONS
-      ===================================================== */}
+      {/* QUICK ACTIONS */}
 
       <section className="rounded-3xl bg-neutral-950 p-7 text-white sm:p-8">
 

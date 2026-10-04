@@ -1,18 +1,10 @@
 import {
-  addDoc,
-  collection,
-  doc,
-  getDoc,
-  onSnapshot,
-  orderBy,
-  query,
-  serverTimestamp,
-  updateDoc,
-} from "firebase/firestore";
+  auth,
+} from "../firebase/config";
 
 import {
-  db,
-} from "../firebase/config";
+  supabase,
+} from "../lib/supabase";
 
 import type {
   CustomProject,
@@ -25,18 +17,176 @@ import type {
 
 /*
  * ==========================================================
- * COLLECTION NAMES
+ * TABLES
  * ==========================================================
  */
 
-const PROJECTS_COLLECTION =
-  "customProjects";
+const PROJECTS_TABLE =
+  "custom_projects";
 
-const MESSAGES_COLLECTION =
-  "customProjectMessages";
+const MESSAGES_TABLE =
+  "custom_project_messages";
 
-const ACTIVITIES_COLLECTION =
-  "customProjectActivities";
+const ACTIVITIES_TABLE =
+  "custom_project_activities";
+
+
+/*
+ * ==========================================================
+ * DATABASE ROW TYPES
+ * ==========================================================
+ */
+
+interface ProjectRow {
+  id: string;
+
+  project_number: string;
+
+  user_id: string;
+
+  customer_name: string;
+
+  customer_email: string;
+
+  customer_phone: string;
+
+  project_type:
+    | "website"
+    | "custom-devices";
+
+  title: string;
+
+  description: string;
+
+  requirements: string | null;
+
+  budget:
+    number |
+    string |
+    null;
+
+  budget_label: string | null;
+
+  timeline: string | null;
+
+  status: string;
+
+  quotation_status: string;
+
+  payment_status: string;
+
+  quoted_amount:
+    number |
+    string |
+    null;
+
+  paid_amount:
+    number |
+    string |
+    null;
+
+  currency: string;
+
+  active_quotation_id: string | null;
+
+  last_message: string | null;
+
+  last_message_by:
+    | "customer"
+    | "admin"
+    | null;
+
+  last_message_at: string | null;
+
+  file_count: number | null;
+
+  estimated_delivery_date:
+    string | null;
+
+  completed_at:
+    string | null;
+
+  created_at: string;
+
+  updated_at: string;
+}
+
+
+interface MessageRow {
+  id: string;
+
+  project_id: string;
+
+  sender_id: string;
+
+  sender_type:
+    | "customer"
+    | "admin";
+
+  sender_name: string;
+
+  sender_email: string | null;
+
+  message: string;
+
+  attachments: unknown;
+
+  created_at: string;
+
+  updated_at: string;
+}
+
+
+/*
+ * ==========================================================
+ * COLUMNS
+ * ==========================================================
+ */
+
+const PROJECT_COLUMNS = `
+  id,
+  project_number,
+  user_id,
+  customer_name,
+  customer_email,
+  customer_phone,
+  project_type,
+  title,
+  description,
+  requirements,
+  budget,
+  budget_label,
+  timeline,
+  status,
+  quotation_status,
+  payment_status,
+  quoted_amount,
+  paid_amount,
+  currency,
+  active_quotation_id,
+  last_message,
+  last_message_by,
+  last_message_at,
+  file_count,
+  estimated_delivery_date,
+  completed_at,
+  created_at,
+  updated_at
+`;
+
+
+const MESSAGE_COLUMNS = `
+  id,
+  project_id,
+  sender_id,
+  sender_type,
+  sender_name,
+  sender_email,
+  message,
+  attachments,
+  created_at,
+  updated_at
+`;
 
 
 /*
@@ -46,85 +196,66 @@ const ACTIVITIES_COLLECTION =
  */
 
 function cleanString(
-  value:
-    unknown,
+  value: unknown,
 ): string {
-
-  if (
-    typeof value !==
+  return typeof value ===
     "string"
-  ) {
-
-    return "";
-  }
-
-
-  return value.trim();
+    ? value.trim()
+    : "";
 }
 
 
 function optionalString(
-  value:
-    unknown,
-): string |
-  undefined {
-
-  const cleaned =
+  value: unknown,
+): string | undefined {
+  const valueString =
     cleanString(
       value,
     );
 
-
-  return cleaned
-    ? cleaned
-    : undefined;
+  return valueString ||
+    undefined;
 }
 
 
 function optionalNumber(
-  value:
-    unknown,
-): number |
-  undefined {
-
+  value: unknown,
+): number | undefined {
   if (
-    typeof value !==
-    "number"
+    value ===
+      null ||
+    value ===
+      undefined ||
+    value ===
+      ""
   ) {
-
     return undefined;
   }
 
 
-  if (
-    !Number.isFinite(
-      value,
-    )
-  ) {
+  const parsed =
+    typeof value ===
+      "number"
+      ? value
+      : Number(
+          value,
+        );
 
-    return undefined;
-  }
 
-
-  return value;
+  return Number.isFinite(
+    parsed,
+  )
+    ? parsed
+    : undefined;
 }
 
 
-/*
- * ==========================================================
- * STATUS NORMALIZERS
- * ==========================================================
- */
-
 function normalizeProjectStatus(
-  value:
-    unknown,
+  value: unknown,
 ): CustomProject["status"] {
-
   switch (
     value
   ) {
-
     case "new":
     case "discussion":
     case "quotation_sent":
@@ -135,63 +266,61 @@ function normalizeProjectStatus(
     case "review":
     case "completed":
     case "cancelled":
-
       return value;
 
     default:
-
       return "new";
   }
 }
 
 
 function normalizeQuotationStatus(
-  value:
-    unknown,
+  value: unknown,
 ): CustomProject["quotationStatus"] {
-
   switch (
     value
   ) {
-
     case "draft":
     case "sent":
     case "accepted":
     case "rejected":
     case "expired":
     case "cancelled":
-
       return value;
 
     default:
-
       return "draft";
   }
 }
 
 
 function normalizePaymentStatus(
-  value:
-    unknown,
+  value: unknown,
 ): CustomProject["paymentStatus"] {
-
   switch (
     value
   ) {
-
     case "not_required":
     case "pending":
     case "processing":
     case "paid":
     case "failed":
     case "refunded":
-
       return value;
 
     default:
-
       return "not_required";
   }
+}
+
+
+function normalizeSenderType(
+  value: unknown,
+): "customer" | "admin" {
+  return value ===
+    "admin"
+    ? "admin"
+    : "customer";
 }
 
 
@@ -202,41 +331,26 @@ function normalizePaymentStatus(
  */
 
 function normalizeProject(
-  id:
-    string,
-
-  data:
-    Record<
-      string,
-      unknown
-    >,
+  row: ProjectRow,
 ): CustomProject {
-
-  const projectType =
-    data.projectType ===
-    "custom-devices"
-      ? "custom-devices"
-      : "website";
-
-
   const lastMessageBy =
-    data.lastMessageBy ===
+    row.last_message_by ===
       "admin" ||
-    data.lastMessageBy ===
+    row.last_message_by ===
       "customer"
-      ? data.lastMessageBy
+      ? row.last_message_by
       : undefined;
 
 
   return {
-
-    id,
+    id:
+      row.id,
 
     projectNumber:
       cleanString(
-        data.projectNumber,
+        row.project_number,
       ) ||
-      `CS-${id
+      `CS-${row.id
         .slice(
           0,
           8,
@@ -245,127 +359,132 @@ function normalizeProject(
 
     userId:
       cleanString(
-        data.userId,
+        row.user_id,
       ),
 
     customerName:
       cleanString(
-        data.customerName,
+        row.customer_name,
       ) ||
       "Customer",
 
     customerEmail:
       cleanString(
-        data.customerEmail,
+        row.customer_email,
       ),
 
     customerPhone:
       cleanString(
-        data.customerPhone,
+        row.customer_phone,
       ),
 
-    projectType,
+    projectType:
+      row.project_type ===
+      "custom-devices"
+        ? "custom-devices"
+        : "website",
 
     title:
       cleanString(
-        data.title,
+        row.title,
       ) ||
       "Untitled Project",
 
     description:
       cleanString(
-        data.description,
+        row.description,
       ),
 
     requirements:
       optionalString(
-        data.requirements,
+        row.requirements,
       ),
 
     budget:
       optionalNumber(
-        data.budget,
+        row.budget,
       ),
 
     budgetLabel:
       optionalString(
-        data.budgetLabel,
+        row.budget_label,
       ),
 
     timeline:
       optionalString(
-        data.timeline,
+        row.timeline,
       ),
 
     status:
       normalizeProjectStatus(
-        data.status,
+        row.status,
       ),
 
     quotationStatus:
       normalizeQuotationStatus(
-        data.quotationStatus,
+        row.quotation_status,
       ),
 
     paymentStatus:
       normalizePaymentStatus(
-        data.paymentStatus,
+        row.payment_status,
       ),
 
     quotedAmount:
       optionalNumber(
-        data.quotedAmount,
+        row.quoted_amount,
       ),
 
     paidAmount:
       optionalNumber(
-        data.paidAmount,
+        row.paid_amount,
       ),
 
     currency:
       cleanString(
-        data.currency,
+        row.currency,
       ) ||
       "INR",
 
     activeQuotationId:
       optionalString(
-        data.activeQuotationId,
+        row.active_quotation_id,
       ),
 
     lastMessage:
       optionalString(
-        data.lastMessage,
+        row.last_message,
       ),
 
-    lastMessageBy,
+    lastMessageBy:
+
+      lastMessageBy,
 
     lastMessageAt:
-      data.lastMessageAt,
+      row.last_message_at,
 
     fileCount:
-      typeof data.fileCount ===
+      typeof row.file_count ===
         "number" &&
       Number.isFinite(
-        data.fileCount,
+        row.file_count,
       )
-        ? data.fileCount
+        ? row.file_count
         : 0,
 
     estimatedDeliveryDate:
       optionalString(
-        data.estimatedDeliveryDate,
+        row.estimated_delivery_date,
       ),
 
     completedAt:
-      data.completedAt,
+      row.completed_at,
 
     createdAt:
-      data.createdAt,
+      row.created_at,
 
     updatedAt:
-      data.updatedAt,
-
+      row.updated_at,
   };
 }
 
@@ -377,42 +496,41 @@ function normalizeProject(
  */
 
 function normalizeMessage(
-  id:
-    string,
-
-  data:
-    Record<
-      string,
-      unknown
-    >,
+  row: MessageRow,
 ): CustomProjectMessage {
-
   const senderType =
-    data.senderType ===
-    "admin"
-      ? "admin"
-      : "customer";
+    normalizeSenderType(
+      row.sender_type,
+    );
+
+
+  const attachments =
+    Array.isArray(
+      row.attachments,
+    )
+      ? row.attachments
+      : [];
 
 
   return {
-
-    id,
+    id:
+      row.id,
 
     projectId:
       cleanString(
-        data.projectId,
+        row.project_id,
       ),
 
     senderId:
       cleanString(
-        data.senderId,
+        row.sender_id,
       ),
 
     senderType,
 
     senderName:
       cleanString(
-        data.senderName,
+        row.sender_name,
       ) ||
       (
         senderType ===
@@ -423,27 +541,22 @@ function normalizeMessage(
 
     senderEmail:
       optionalString(
-        data.senderEmail,
+        row.sender_email,
       ),
 
     message:
       cleanString(
-        data.message,
+        row.message,
       ),
 
     attachments:
-      Array.isArray(
-        data.attachments,
-      )
-        ? data.attachments as CustomProjectMessage["attachments"]
-        : [],
+      attachments as CustomProjectMessage["attachments"],
 
     createdAt:
-      data.createdAt,
+      row.created_at,
 
     updatedAt:
-      data.updatedAt,
-
+      row.updated_at,
   };
 }
 
@@ -455,7 +568,6 @@ function normalizeMessage(
  */
 
 function createProjectNumber(): string {
-
   const now =
     new Date();
 
@@ -490,9 +602,93 @@ function createProjectNumber(): string {
     1000;
 
 
-  return (
-    `CS-${year}${month}${day}-${random}`
-  );
+  return `CS-${year}${month}${day}-${random}`;
+}
+
+
+/*
+ * ==========================================================
+ * REQUIRE CURRENT FIREBASE USER
+ * ==========================================================
+ */
+
+function requireCurrentUser() {
+  const user =
+    auth.currentUser;
+
+
+  if (
+    !user
+  ) {
+    throw new Error(
+      "You must be signed in to continue.",
+    );
+  }
+
+
+  return user;
+}
+
+
+/*
+ * ==========================================================
+ * CREATE ACTIVITY
+ * ==========================================================
+ */
+
+async function createProjectActivity(
+  projectId: string,
+  actorId: string,
+  actorType:
+    | "customer"
+    | "admin",
+  type: string,
+  description: string,
+): Promise<void> {
+  try {
+    const {
+      error,
+    } =
+      await supabase
+        .from(
+          ACTIVITIES_TABLE,
+        )
+        .insert({
+          project_id:
+            projectId,
+
+          type,
+
+          description,
+
+          actor_id:
+            actorId,
+
+          actor_type:
+            actorType,
+
+          created_at:
+            new Date().toISOString(),
+        });
+
+
+    if (
+      error
+    ) {
+      throw error;
+    }
+  } catch (
+    error
+  ) {
+    /*
+     * Activity logging is best-effort.
+     */
+
+    console.warn(
+      "Custom project activity could not be created:",
+      error,
+    );
+  }
 }
 
 
@@ -500,45 +696,55 @@ function createProjectNumber(): string {
  * ==========================================================
  * CREATE CUSTOM PROJECT
  * ==========================================================
- *
- * IMPORTANT:
- *
- * Firestore does not accept undefined values.
- *
- * Therefore optional values are only added when they
- * actually exist.
- * ==========================================================
  */
 
 export async function createCustomProject(
   data:
     CreateCustomProjectData,
 ): Promise<string> {
+  const user =
+    requireCurrentUser();
+
 
   const userId =
     cleanString(
       data.userId,
     );
 
+
+  if (
+    userId !==
+    user.uid
+  ) {
+    throw new Error(
+      "Project user does not match the signed-in account.",
+    );
+  }
+
+
   const customerName =
     cleanString(
       data.customerName,
     );
+
 
   const customerEmail =
     cleanString(
       data.customerEmail,
     ).toLowerCase();
 
+
   const customerPhone =
     cleanString(
       data.customerPhone,
     );
 
+
   const title =
     cleanString(
       data.title,
     );
+
 
   const description =
     cleanString(
@@ -547,19 +753,8 @@ export async function createCustomProject(
 
 
   if (
-    !userId
-  ) {
-
-    throw new Error(
-      "You must be signed in to create a project.",
-    );
-  }
-
-
-  if (
     !customerName
   ) {
-
     throw new Error(
       "Customer name is required.",
     );
@@ -569,7 +764,6 @@ export async function createCustomProject(
   if (
     !customerEmail
   ) {
-
     throw new Error(
       "Customer email is required.",
     );
@@ -579,7 +773,6 @@ export async function createCustomProject(
   if (
     !customerPhone
   ) {
-
     throw new Error(
       "Customer phone number is required.",
     );
@@ -589,7 +782,6 @@ export async function createCustomProject(
   if (
     !title
   ) {
-
     throw new Error(
       "Project title is required.",
     );
@@ -599,7 +791,6 @@ export async function createCustomProject(
   if (
     !description
   ) {
-
     throw new Error(
       "Project description is required.",
     );
@@ -612,69 +803,15 @@ export async function createCustomProject(
     data.projectType !==
       "custom-devices"
   ) {
-
     throw new Error(
       "Invalid custom project type.",
     );
   }
 
 
-  const projectData:
-    Record<
-      string,
-      unknown
-    > = {
+  const projectId =
+    crypto.randomUUID();
 
-    projectNumber:
-      createProjectNumber(),
-
-    userId,
-
-    customerName,
-
-    customerEmail,
-
-    customerPhone,
-
-    projectType:
-      data.projectType,
-
-    title,
-
-    description,
-
-    status:
-      "new",
-
-    quotationStatus:
-      "draft",
-
-    paymentStatus:
-      "not_required",
-
-    currency:
-      cleanString(
-        data.currency,
-      ) ||
-      "INR",
-
-    fileCount:
-      0,
-
-    createdAt:
-      serverTimestamp(),
-
-    updatedAt:
-      serverTimestamp(),
-
-  };
-
-
-  /*
-   * --------------------------------------------------------
-   * OPTIONAL REQUIREMENTS
-   * --------------------------------------------------------
-   */
 
   const requirements =
     optionalString(
@@ -682,49 +819,11 @@ export async function createCustomProject(
     );
 
 
-  if (
-    requirements !==
-    undefined
-  ) {
-
-    projectData.requirements =
-      requirements;
-  }
-
-
-  /*
-   * --------------------------------------------------------
-   * OPTIONAL BUDGET
-   * --------------------------------------------------------
-   *
-   * NEVER send:
-   *
-   * budget: undefined
-   *
-   * This was the error shown in your screenshot.
-   */
-
   const budget =
     optionalNumber(
       data.budget,
     );
 
-
-  if (
-    budget !==
-    undefined
-  ) {
-
-    projectData.budget =
-      budget;
-  }
-
-
-  /*
-   * --------------------------------------------------------
-   * OPTIONAL BUDGET LABEL
-   * --------------------------------------------------------
-   */
 
   const budgetLabel =
     optionalString(
@@ -732,106 +831,107 @@ export async function createCustomProject(
     );
 
 
-  if (
-    budgetLabel !==
-    undefined
-  ) {
-
-    projectData.budgetLabel =
-      budgetLabel;
-  }
-
-
-  /*
-   * --------------------------------------------------------
-   * OPTIONAL TIMELINE
-   * --------------------------------------------------------
-   */
-
   const timeline =
     optionalString(
       data.timeline,
     );
 
 
-  if (
-    timeline !==
-    undefined
-  ) {
-
-    projectData.timeline =
-      timeline;
-  }
+  const currency =
+    cleanString(
+      data.currency,
+    ) ||
+    "INR";
 
 
-  /*
-   * --------------------------------------------------------
-   * FIRESTORE CREATE
-   * --------------------------------------------------------
-   */
+  const {
+    error,
+  } =
+    await supabase
+      .from(
+        PROJECTS_TABLE,
+      )
+      .insert({
+        id:
+          projectId,
 
-  const projectDocument =
-    await addDoc(
-      collection(
-        db,
-        PROJECTS_COLLECTION,
-      ),
-      projectData,
-    );
+        project_number:
+          createProjectNumber(),
 
-
-  /*
-   * --------------------------------------------------------
-   * ACTIVITY
-   * --------------------------------------------------------
-   *
-   * Best effort only.
-   * A failed activity write must not make the project
-   * creation appear to have failed.
-   */
-
-  try {
-
-    await addDoc(
-      collection(
-        db,
-        ACTIVITIES_COLLECTION,
-      ),
-      {
-
-        projectId:
-          projectDocument.id,
-
-        type:
-          "created",
-
-        description:
-          "Custom project created.",
-
-        actorId:
+        user_id:
           userId,
 
-        actorType:
-          "customer",
+        customer_name:
+          customerName,
 
-        createdAt:
-          serverTimestamp(),
+        customer_email:
+          customerEmail,
 
-      },
-    );
+        customer_phone:
+          customerPhone,
 
-  } catch (
-    activityError
+        project_type:
+          data.projectType,
+
+        title,
+
+        description,
+
+        requirements:
+          requirements ??
+          null,
+
+        budget:
+          budget ??
+          null,
+
+        budget_label:
+          budgetLabel ??
+          null,
+
+        timeline:
+          timeline ??
+          null,
+
+        status:
+          "new",
+
+        quotation_status:
+          "draft",
+
+        payment_status:
+          "not_required",
+
+        currency,
+
+        file_count:
+          0,
+
+        created_at:
+          new Date().toISOString(),
+
+        updated_at:
+          new Date().toISOString(),
+      });
+
+
+  if (
+    error
   ) {
-
-    console.warn(
-      "Project activity could not be created:",
-      activityError,
-    );
+    throw error;
   }
 
 
-  return projectDocument.id;
+  await createProjectActivity(
+    projectId,
+    userId,
+    "customer",
+    "created",
+    "Custom project created.",
+  );
+
+
+  return projectId;
 }
 
 
@@ -842,13 +942,8 @@ export async function createCustomProject(
  */
 
 export async function getCustomProject(
-  projectId:
-    string,
-): Promise<
-  CustomProject |
-  null
-> {
-
+  projectId: string,
+): Promise<CustomProject | null> {
   const cleanProjectId =
     cleanString(
       projectId,
@@ -858,64 +953,65 @@ export async function getCustomProject(
   if (
     !cleanProjectId
   ) {
-
     return null;
   }
 
 
-  const projectRef =
-    doc(
-      db,
-      PROJECTS_COLLECTION,
-      cleanProjectId,
-    );
-
-
-  const snapshot =
-    await getDoc(
-      projectRef,
-    );
+  const {
+    data,
+    error,
+  } =
+    await supabase
+      .from(
+        PROJECTS_TABLE,
+      )
+      .select(
+        PROJECT_COLUMNS,
+      )
+      .eq(
+        "id",
+        cleanProjectId,
+      )
+      .maybeSingle();
 
 
   if (
-    !snapshot.exists()
+    error
   ) {
+    throw error;
+  }
 
+
+  if (
+    !data
+  ) {
     return null;
   }
 
 
   return normalizeProject(
-    snapshot.id,
-    snapshot.data(),
+    data as ProjectRow,
   );
 }
 
 
 /*
  * ==========================================================
- * REALTIME PROJECT
+ * REALTIME SINGLE PROJECT
  * ==========================================================
  */
 
 export function subscribeCustomProject(
-  projectId:
-    string,
-
-  callback:
-    (
-      project:
-        CustomProject |
-        null,
-    ) => void,
-
-  onError?:
-    (
-      error:
-        Error,
-    ) => void,
+  projectId: string,
+  callback: (
+    project:
+      CustomProject |
+      null,
+  ) => void,
+  onError?: (
+    error: Error,
+  ) => void,
 ): () => void {
-
   const cleanProjectId =
     cleanString(
       projectId,
@@ -925,74 +1021,227 @@ export function subscribeCustomProject(
   if (
     !cleanProjectId
   ) {
-
     callback(
       null,
     );
 
 
     return () => {
-      // No listener to remove.
+      // No subscription.
     };
   }
 
 
-  return onSnapshot(
+  let stopped =
+    false;
 
-    doc(
-      db,
-      PROJECTS_COLLECTION,
-      cleanProjectId,
-    ),
 
-    (
-      snapshot,
-    ) => {
+  let channel:
+    ReturnType<
+      typeof supabase.channel
+    > | null =
+    null;
 
-      if (
-        !snapshot.exists()
-      ) {
 
-        callback(
-          null,
+  async function loadProject() {
+    try {
+      const project =
+        await getCustomProject(
+          cleanProjectId,
         );
 
-        return;
-      }
-
-
-      callback(
-        normalizeProject(
-          snapshot.id,
-          snapshot.data(),
-        ),
-      );
-
-    },
-
-    (
-      listenerError,
-    ) => {
-
-      console.error(
-        "Custom project realtime listener failed:",
-        listenerError,
-      );
-
 
       if (
-        onError
+        !stopped
       ) {
+        callback(
+          project,
+        );
+      }
+    } catch (
+      error
+    ) {
+      if (
+        !stopped
+      ) {
+        const normalized =
+          error instanceof Error
+            ? error
+            : new Error(
+                "Unable to load custom project.",
+              );
 
-        onError(
+
+        onError?.(
+          normalized,
+        );
+      }
+    }
+  }
+
+
+  void loadProject();
+
+
+  channel =
+    supabase
+      .channel(
+        `custom-project-${cleanProjectId}-${Date.now()}`,
+      )
+      .on(
+        "postgres_changes",
+        {
+          event:
+            "*",
+
+          schema:
+            "public",
+
+          table:
+            PROJECTS_TABLE,
+
+          filter:
+            `id=eq.${cleanProjectId}`,
+        },
+        () => {
+          void loadProject();
+        },
+      )
+      .subscribe(
+        (
+          status,
+        ) => {
+          if (
+            status ===
+              "CHANNEL_ERROR" ||
+            status ===
+              "TIMED_OUT"
+          ) {
+            onError?.(
+              new Error(
+                "Unable to connect to the custom project database.",
+              ),
+            );
+          }
+        },
+      );
+
+
+  return () => {
+    stopped =
+      true;
+
+
+    if (
+      channel
+    ) {
+      void supabase.removeChannel(
+        channel,
+      );
+    }
+  };
+}
+
+
+/*
+ * ==========================================================
+ * GET ALL CUSTOM PROJECTS
+ * ==========================================================
+ */
+
+export function subscribeCustomerCustomProjects(
+  userId: string,
+  callback: (
+    projects: CustomProject[],
+  ) => void,
+  onError?: (
+    error: Error,
+  ) => void,
+): () => void {
+  const user = requireCurrentUser();
+  const cleanUserId = cleanString(userId);
+
+  if (!cleanUserId || cleanUserId !== user.uid) {
+    const error = new Error(
+      "Project user does not match the signed-in account.",
+    );
+    onError?.(error);
+    callback([]);
+    return () => {
+      // No subscription.
+    };
+  }
+
+  let stopped = false;
+  let channel: ReturnType<typeof supabase.channel> | null = null;
+
+  async function loadProjects() {
+    try {
+      const {
+        data,
+        error,
+      } = await supabase
+        .from(PROJECTS_TABLE)
+        .select(PROJECT_COLUMNS)
+        .eq("user_id", cleanUserId)
+        .order("created_at", { ascending: false });
+
+      if (error) {
+        throw error;
+      }
+
+      const projects = (data ?? [])
+        .map((row) => normalizeProject(row as ProjectRow));
+
+      if (!stopped) {
+        callback(projects);
+      }
+    } catch (error) {
+      if (!stopped) {
+        const normalized =
+          error instanceof Error
+            ? error
+            : new Error(
+                "Unable to load your previous projects.",
+              );
+        onError?.(normalized);
+      }
+    }
+  }
+
+  void loadProjects();
+
+  channel = supabase
+    .channel(`custom-projects-user-${cleanUserId}-${Date.now()}`)
+    .on(
+      "postgres_changes",
+      {
+        event: "*",
+        schema: "public",
+        table: PROJECTS_TABLE,
+        filter: `user_id=eq.${cleanUserId}`,
+      },
+      () => {
+        void loadProjects();
+      },
+    )
+    .subscribe((status) => {
+      if (status === "CHANNEL_ERROR" || status === "TIMED_OUT") {
+        onError?.(
           new Error(
-            listenerError.message,
+            "Unable to connect to the custom project database.",
           ),
         );
       }
+    });
 
-    },
-  );
+  return () => {
+    stopped = true;
+
+    if (channel) {
+      void supabase.removeChannel(channel);
+    }
+  };
 }
 
 
@@ -1003,95 +1252,38 @@ export function subscribeCustomProject(
  */
 
 export async function getCustomProjects():
-  Promise<
-    CustomProject[]
-  > {
-
-  const projectsQuery =
-    query(
-      collection(
-        db,
-        PROJECTS_COLLECTION,
-      ),
-
-      orderBy(
-        "createdAt",
-        "desc",
-      ),
-    );
-
-
-  /*
-   * Use getDocs lazily imported through the Firebase
-   * namespace-free approach below.
-   *
-   * To keep this service compatible with existing imports,
-   * this function uses the realtime listener pattern through
-   * a one-shot Promise.
-   */
-
-  return new Promise(
-    (
-      resolve,
-      reject,
-    ) => {
-
-      let firstSnapshot =
-        true;
+  Promise<CustomProject[]> {
+  const {
+    data,
+    error,
+  } =
+    await supabase
+      .from(
+        PROJECTS_TABLE,
+      )
+      .select(
+        PROJECT_COLUMNS,
+      )
+      .order(
+        "created_at",
+        {
+          ascending:
+            false,
+        },
+      );
 
 
-      const unsubscribe =
-        onSnapshot(
-
-          projectsQuery,
-
-          (
-            snapshot,
-          ) => {
-
-            const projects =
-              snapshot.docs.map(
-                (
-                  document,
-                ) =>
-                  normalizeProject(
-                    document.id,
-                    document.data(),
-                  ),
-              );
+  if (
+    error
+  ) {
+    throw error;
+  }
 
 
-            if (
-              firstSnapshot
-            ) {
-
-              firstSnapshot =
-                false;
-
-              resolve(
-                projects,
-              );
-
-              unsubscribe();
-
-            }
-
-          },
-
-          (
-            listenerError,
-          ) => {
-
-            unsubscribe();
-
-            reject(
-              listenerError,
-            );
-          },
-
-        );
-
-    },
+  return (
+    (data ?? []) as ProjectRow[]
+  ).map(
+    normalizeProject,
   );
 }
 
@@ -1103,82 +1295,116 @@ export async function getCustomProjects():
  */
 
 export function subscribeCustomProjects(
-  callback:
-    (
-      projects:
-        CustomProject[],
-    ) => void,
-
-  onError?:
-    (
-      error:
-        Error,
-    ) => void,
+  callback: (
+    projects: CustomProject[],
+  ) => void,
+  onError?: (
+    error: Error,
+  ) => void,
 ): () => void {
-
-  const projectsQuery =
-    query(
-      collection(
-        db,
-        PROJECTS_COLLECTION,
-      ),
-
-      orderBy(
-        "createdAt",
-        "desc",
-      ),
-    );
+  let stopped =
+    false;
 
 
-  return onSnapshot(
+  let channel:
+    ReturnType<
+      typeof supabase.channel
+    > | null =
+    null;
 
-    projectsQuery,
 
-    (
-      snapshot,
-    ) => {
-
+  async function loadProjects() {
+    try {
       const projects =
-        snapshot.docs.map(
-          (
-            document,
-          ) =>
-            normalizeProject(
-              document.id,
-              document.data(),
-            ),
-        );
-
-
-      callback(
-        projects,
-      );
-
-    },
-
-    (
-      listenerError,
-    ) => {
-
-      console.error(
-        "Custom projects realtime listener failed:",
-        listenerError,
-      );
+        await getCustomProjects();
 
 
       if (
-        onError
+        !stopped
       ) {
-
-        onError(
-          new Error(
-            listenerError.message,
-          ),
+        callback(
+          projects,
         );
       }
+    } catch (
+      error
+    ) {
+      if (
+        !stopped
+      ) {
+        const normalized =
+          error instanceof Error
+            ? error
+            : new Error(
+                "Unable to load custom projects.",
+              );
 
-    },
-  );
+
+        onError?.(
+          normalized,
+        );
+      }
+    }
+  }
+
+
+  void loadProjects();
+
+
+  channel =
+    supabase
+      .channel(
+        `custom-projects-${Date.now()}`,
+      )
+      .on(
+        "postgres_changes",
+        {
+          event:
+            "*",
+
+          schema:
+            "public",
+
+          table:
+            PROJECTS_TABLE,
+        },
+        () => {
+          void loadProjects();
+        },
+      )
+      .subscribe(
+        (
+          status,
+        ) => {
+          if (
+            status ===
+              "CHANNEL_ERROR" ||
+            status ===
+              "TIMED_OUT"
+          ) {
+            onError?.(
+              new Error(
+                "Unable to connect to the custom projects database.",
+              ),
+            );
+          }
+        },
+      );
+
+
+  return () => {
+    stopped =
+      true;
+
+
+    if (
+      channel
+    ) {
+      void supabase.removeChannel(
+        channel,
+      );
+    }
+  };
 }
 
 
@@ -1189,12 +1415,13 @@ export function subscribeCustomProjects(
  */
 
 export async function updateCustomProject(
-  projectId:
-    string,
-
+  projectId: string,
   data:
     UpdateCustomProjectData,
 ): Promise<void> {
+  const user =
+    requireCurrentUser();
+
 
   const cleanProjectId =
     cleanString(
@@ -1205,91 +1432,56 @@ export async function updateCustomProject(
   if (
     !cleanProjectId
   ) {
-
     throw new Error(
       "Project ID is required.",
     );
   }
 
 
-  const payload:
+  const updates:
     Record<
       string,
       unknown
-    > = {
+    > = {};
 
-    updatedAt:
-      serverTimestamp(),
-
-  };
-
-
-  /*
-   * Title
-   */
 
   if (
     data.title !==
     undefined
   ) {
-
-    const value =
+    updates.title =
       cleanString(
         data.title,
       );
-
-
-    if (
-      value
-    ) {
-
-      payload.title =
-        value;
-    }
   }
 
-
-  /*
-   * Description
-   */
 
   if (
     data.description !==
     undefined
   ) {
-
-    payload.description =
+    updates.description =
       cleanString(
         data.description,
       );
   }
 
 
-  /*
-   * Requirements
-   */
-
   if (
     data.requirements !==
     undefined
   ) {
-
-    payload.requirements =
+    updates.requirements =
       cleanString(
         data.requirements,
       );
   }
 
 
-  /*
-   * Budget
-   */
-
   if (
     data.budget !==
     undefined
   ) {
-
     const budget =
       optionalNumber(
         data.budget,
@@ -1300,184 +1492,212 @@ export async function updateCustomProject(
       budget ===
       undefined
     ) {
-
       throw new Error(
         "Budget must be a valid number.",
       );
     }
 
 
-    payload.budget =
+    updates.budget =
       budget;
   }
 
-
-  /*
-   * Budget label
-   */
 
   if (
     data.budgetLabel !==
     undefined
   ) {
-
-    payload.budgetLabel =
+    updates.budget_label =
       cleanString(
         data.budgetLabel,
       );
   }
 
 
-  /*
-   * Timeline
-   */
-
   if (
     data.timeline !==
     undefined
   ) {
-
-    payload.timeline =
+    updates.timeline =
       cleanString(
         data.timeline,
       );
   }
 
 
-  /*
-   * Customer name
-   */
-
   if (
     data.customerName !==
     undefined
   ) {
-
-    payload.customerName =
+    updates.customer_name =
       cleanString(
         data.customerName,
       );
   }
 
 
-  /*
-   * Customer email
-   */
-
   if (
     data.customerEmail !==
     undefined
   ) {
-
-    payload.customerEmail =
+    updates.customer_email =
       cleanString(
         data.customerEmail,
       ).toLowerCase();
   }
 
 
-  /*
-   * Customer phone
-   */
-
   if (
     data.customerPhone !==
     undefined
   ) {
-
-    payload.customerPhone =
+    updates.customer_phone =
       cleanString(
         data.customerPhone,
       );
   }
 
 
-  /*
-   * Delivery date
-   */
-
   if (
     data.estimatedDeliveryDate !==
     undefined
   ) {
-
-    payload.estimatedDeliveryDate =
+    updates.estimated_delivery_date =
       cleanString(
         data.estimatedDeliveryDate,
       );
   }
 
 
+  if (
+    data.status !==
+    undefined
+  ) {
+    updates.status =
+      data.status;
+
+
+    if (
+      data.status ===
+      "completed"
+    ) {
+      updates.completed_at =
+        new Date().toISOString();
+    }
+  }
+
+
+  if (
+    data.quotationStatus !==
+    undefined
+  ) {
+    updates.quotation_status =
+      data.quotationStatus;
+  }
+
+
+  if (
+    data.paymentStatus !==
+    undefined
+  ) {
+    updates.payment_status =
+      data.paymentStatus;
+  }
+
+
+  if (
+    Object.keys(
+      updates,
+    ).length ===
+    0
+  ) {
+    return;
+  }
+
+
+  updates.updated_at =
+    new Date().toISOString();
+
+
+  const {
+    error,
+  } =
+    await supabase
+      .from(
+        PROJECTS_TABLE,
+      )
+      .update(
+        updates,
+      )
+      .eq(
+        "id",
+        cleanProjectId,
+      );
+
+
+  if (
+    error
+  ) {
+    throw error;
+  }
+
+
   /*
-   * Status
+   * Record status changes.
    */
 
   if (
     data.status !==
     undefined
   ) {
-
-    payload.status =
-      data.status;
-  }
-
-
-  /*
-   * Quotation status
-   */
-
-  if (
-    data.quotationStatus !==
-    undefined
-  ) {
-
-    payload.quotationStatus =
-      data.quotationStatus;
-  }
+    let actorType:
+      | "customer"
+      | "admin" =
+      "customer";
 
 
-  /*
-   * Payment status
-   */
-
-  if (
-    data.paymentStatus !==
-    undefined
-  ) {
-
-    payload.paymentStatus =
-      data.paymentStatus;
-  }
+    try {
+      const tokenResult =
+        await user.getIdTokenResult(
+          false,
+        );
 
 
-  await updateDoc(
-    doc(
-      db,
-      PROJECTS_COLLECTION,
+      actorType =
+        tokenResult.claims.is_admin ===
+        true
+          ? "admin"
+          : "customer";
+    } catch {
+      actorType =
+        "customer";
+    }
+
+
+    await createProjectActivity(
       cleanProjectId,
-    ),
-    payload,
-  );
+      user.uid,
+      actorType,
+      "status_changed",
+      `Project status changed to ${data.status}.`,
+    );
+  }
 }
 
 
 /*
  * ==========================================================
- * PROJECT STATUS
+ * STATUS HELPERS
  * ==========================================================
  */
 
 export async function setCustomProjectStatus(
-  projectId:
-    string,
-
+  projectId: string,
   status:
     CustomProject["status"],
 ): Promise<void> {
-
   await updateCustomProject(
     projectId,
-
     {
       status,
     },
@@ -1485,23 +1705,13 @@ export async function setCustomProjectStatus(
 }
 
 
-/*
- * ==========================================================
- * QUOTATION STATUS
- * ==========================================================
- */
-
 export async function setCustomProjectQuotationStatus(
-  projectId:
-    string,
-
+  projectId: string,
   status:
     CustomProject["quotationStatus"],
 ): Promise<void> {
-
   await updateCustomProject(
     projectId,
-
     {
       quotationStatus:
         status,
@@ -1510,23 +1720,13 @@ export async function setCustomProjectQuotationStatus(
 }
 
 
-/*
- * ==========================================================
- * PAYMENT STATUS
- * ==========================================================
- */
-
 export async function setCustomProjectPaymentStatus(
-  projectId:
-    string,
-
+  projectId: string,
   status:
     CustomProject["paymentStatus"],
 ): Promise<void> {
-
   await updateCustomProject(
     projectId,
-
     {
       paymentStatus:
         status,
@@ -1545,21 +1745,27 @@ export async function createCustomProjectMessage(
   data:
     CreateCustomProjectMessageData,
 ): Promise<string> {
+  const user =
+    requireCurrentUser();
+
 
   const projectId =
     cleanString(
       data.projectId,
     );
 
+
   const senderId =
     cleanString(
       data.senderId,
     );
 
+
   const senderName =
     cleanString(
       data.senderName,
     );
+
 
   const message =
     cleanString(
@@ -1570,7 +1776,6 @@ export async function createCustomProjectMessage(
   if (
     !projectId
   ) {
-
     throw new Error(
       "Project ID is required.",
     );
@@ -1580,7 +1785,6 @@ export async function createCustomProjectMessage(
   if (
     !senderId
   ) {
-
     throw new Error(
       "Sender ID is required.",
     );
@@ -1588,9 +1792,18 @@ export async function createCustomProjectMessage(
 
 
   if (
+    senderId !==
+    user.uid
+  ) {
+    throw new Error(
+      "Message sender does not match the signed-in account.",
+    );
+  }
+
+
+  if (
     !senderName
   ) {
-
     throw new Error(
       "Sender name is required.",
     );
@@ -1600,40 +1813,39 @@ export async function createCustomProjectMessage(
   if (
     !message
   ) {
-
     throw new Error(
       "Message cannot be empty.",
     );
   }
 
 
-  const messageData:
-    Record<
-      string,
-      unknown
-    > = {
+  let senderType:
+    | "customer"
+    | "admin";
 
-    projectId,
 
-    senderId,
+  try {
+    const tokenResult =
+      await user.getIdTokenResult(
+        false,
+      );
 
-    senderType:
+
+    senderType =
       data.senderType ===
-        "admin"
+        "admin" &&
+      tokenResult.claims.is_admin ===
+        true
         ? "admin"
-        : "customer",
+        : "customer";
+  } catch {
+    senderType =
+      "customer";
+  }
 
-    senderName,
 
-    message,
-
-    createdAt:
-      serverTimestamp(),
-
-    updatedAt:
-      serverTimestamp(),
-
-  };
+  const messageId =
+    crypto.randomUUID();
 
 
   const senderEmail =
@@ -1642,125 +1854,111 @@ export async function createCustomProjectMessage(
     );
 
 
-  if (
-    senderEmail !==
-    undefined
-  ) {
+  const {
+    error,
+  } =
+    await supabase
+      .from(
+        MESSAGES_TABLE,
+      )
+      .insert({
+        id:
+          messageId,
 
-    messageData.senderEmail =
-      senderEmail.toLowerCase();
+        project_id:
+          projectId,
+
+        sender_id:
+          senderId,
+
+        sender_type:
+          senderType,
+
+        sender_name:
+          senderName,
+
+        sender_email:
+          senderEmail
+            ?.toLowerCase() ??
+          null,
+
+        message,
+
+        attachments:
+          [],
+
+        created_at:
+          new Date().toISOString(),
+
+        updated_at:
+          new Date().toISOString(),
+      });
+
+
+  if (
+    error
+  ) {
+    throw error;
   }
 
 
-  const messageDocument =
-    await addDoc(
-      collection(
-        db,
-        MESSAGES_COLLECTION,
-      ),
-      messageData,
-    );
-
-
   /*
-   * Update project preview fields.
+   * Update project last-message preview.
    */
 
-  await updateDoc(
-    doc(
-      db,
-      PROJECTS_COLLECTION,
-      projectId,
-    ),
-    {
+  const {
+    error:
+      projectError,
+  } =
+    await supabase
+      .from(
+        PROJECTS_TABLE,
+      )
+      .update({
+        last_message:
+          message,
 
-      lastMessage:
-        message,
+        last_message_by:
+          senderType,
 
-      lastMessageBy:
-        data.senderType ===
-          "admin"
-          ? "admin"
-          : "customer",
+        last_message_at:
+          new Date().toISOString(),
 
-      lastMessageAt:
-        serverTimestamp(),
+        updated_at:
+          new Date().toISOString(),
+      })
+      .eq(
+        "id",
+        projectId,
+      );
 
-      updatedAt:
-        serverTimestamp(),
 
-    },
+  if (
+    projectError
+  ) {
+    console.warn(
+      "Project preview could not be updated:",
+      projectError,
+    );
+  }
+
+
+  await createProjectActivity(
+    projectId,
+    senderId,
+    senderType,
+    "message",
+    "A project message was added.",
   );
 
 
-  /*
-   * Activity
-   */
-
-  try {
-
-    await addDoc(
-      collection(
-        db,
-        ACTIVITIES_COLLECTION,
-      ),
-      {
-
-        projectId,
-
-        type:
-          "message",
-
-        description:
-          "A project message was added.",
-
-        actorId:
-          senderId,
-
-        actorType:
-          data.senderType ===
-            "admin"
-            ? "admin"
-            : "customer",
-
-        createdAt:
-          serverTimestamp(),
-
-      },
-    );
-
-  } catch (
-    activityError
-  ) {
-
-    console.warn(
-      "Message activity could not be created:",
-      activityError,
-    );
-  }
-
-
-  return messageDocument.id;
+  return messageId;
 }
 
 
 /*
  * ==========================================================
- * SEND CUSTOM PROJECT MESSAGE
- * ==========================================================
- *
- * IMPORTANT:
- *
- * Existing pages in your project already call:
- *
- *   sendCustomProjectMessage(...)
- *
- * Newer code uses:
- *
- *   createCustomProjectMessage(...)
- *
- * Keep BOTH exports so the existing admin and customer
- * CustomProjectDetails pages continue to compile.
+ * COMPATIBILITY EXPORT
  * ==========================================================
  */
 
@@ -1768,9 +1966,56 @@ export async function sendCustomProjectMessage(
   data:
     CreateCustomProjectMessageData,
 ): Promise<string> {
-
   return createCustomProjectMessage(
     data,
+  );
+}
+
+
+/*
+ * ==========================================================
+ * GET PROJECT MESSAGES
+ * ==========================================================
+ */
+
+async function getProjectMessages(
+  projectId: string,
+): Promise<CustomProjectMessage[]> {
+  const {
+    data,
+    error,
+  } =
+    await supabase
+      .from(
+        MESSAGES_TABLE,
+      )
+      .select(
+        MESSAGE_COLUMNS,
+      )
+      .eq(
+        "project_id",
+        projectId,
+      )
+      .order(
+        "created_at",
+        {
+          ascending:
+            true,
+        },
+      );
+
+
+  if (
+    error
+  ) {
+    throw error;
+  }
+
+
+  return (
+    (data ?? []) as MessageRow[]
+  ).map(
+    normalizeMessage,
   );
 }
 
@@ -1782,22 +2027,15 @@ export async function sendCustomProjectMessage(
  */
 
 export function subscribeCustomProjectMessages(
-  projectId:
-    string,
-
-  callback:
-    (
-      messages:
-        CustomProjectMessage[],
-    ) => void,
-
-  onError?:
-    (
-      error:
-        Error,
-    ) => void,
+  projectId: string,
+  callback: (
+    messages:
+      CustomProjectMessage[],
+  ) => void,
+  onError?: (
+    error: Error,
+  ) => void,
 ): () => void {
-
   const cleanProjectId =
     cleanString(
       projectId,
@@ -1807,118 +2045,144 @@ export function subscribeCustomProjectMessages(
   if (
     !cleanProjectId
   ) {
-
     callback(
       [],
     );
 
 
     return () => {
-      // No listener to remove.
+      // No subscription.
     };
   }
 
 
-  const messagesQuery =
-    query(
-      collection(
-        db,
-        MESSAGES_COLLECTION,
-      ),
-
-      orderBy(
-        "createdAt",
-        "asc",
-      ),
-    );
+  let stopped =
+    false;
 
 
-  return onSnapshot(
+  let channel:
+    ReturnType<
+      typeof supabase.channel
+    > | null =
+    null;
 
-    messagesQuery,
 
-    (
-      snapshot,
-    ) => {
-
+  async function loadMessages() {
+    try {
       const messages =
-        snapshot.docs
-          .map(
-            (
-              document,
-            ) =>
-              normalizeMessage(
-                document.id,
-                document.data(),
-              ),
-          )
-          .filter(
-            (
-              message,
-            ) =>
-              message.projectId ===
-              cleanProjectId,
-          );
-
-
-      callback(
-        messages,
-      );
-
-    },
-
-    (
-      listenerError,
-    ) => {
-
-      console.error(
-        "Custom project message listener failed:",
-        listenerError,
-      );
+        await getProjectMessages(
+          cleanProjectId,
+        );
 
 
       if (
-        onError
+        !stopped
       ) {
-
-        onError(
-          new Error(
-            listenerError.message,
-          ),
+        callback(
+          messages,
         );
       }
+    } catch (
+      error
+    ) {
+      if (
+        !stopped
+      ) {
+        const normalized =
+          error instanceof Error
+            ? error
+            : new Error(
+                "Unable to load project messages.",
+              );
 
-    },
-  );
+
+        onError?.(
+          normalized,
+        );
+      }
+    }
+  }
+
+
+  void loadMessages();
+
+
+  channel =
+    supabase
+      .channel(
+        `custom-project-messages-${cleanProjectId}-${Date.now()}`,
+      )
+      .on(
+        "postgres_changes",
+        {
+          event:
+            "*",
+
+          schema:
+            "public",
+
+          table:
+            MESSAGES_TABLE,
+
+          filter:
+            `project_id=eq.${cleanProjectId}`,
+        },
+        () => {
+          void loadMessages();
+        },
+      )
+      .subscribe(
+        (
+          status,
+        ) => {
+          if (
+            status ===
+              "CHANNEL_ERROR" ||
+            status ===
+              "TIMED_OUT"
+          ) {
+            onError?.(
+              new Error(
+                "Unable to connect to the project messages database.",
+              ),
+            );
+          }
+        },
+      );
+
+
+  return () => {
+    stopped =
+      true;
+
+
+    if (
+      channel
+    ) {
+      void supabase.removeChannel(
+        channel,
+      );
+    }
+  };
 }
 
 
 /*
  * ==========================================================
- * PROJECT MESSAGE COMPATIBILITY SUBSCRIPTION
- * ==========================================================
- *
- * Some older pages may use this name.
+ * COMPATIBILITY SUBSCRIPTION
  * ==========================================================
  */
 
 export function subscribeCustomProjectMessage(
-  projectId:
-    string,
-
-  callback:
-    (
-      messages:
-        CustomProjectMessage[],
-    ) => void,
-
-  onError?:
-    (
-      error:
-        Error,
-    ) => void,
+  projectId: string,
+  callback: (
+    messages:
+      CustomProjectMessage[],
+  ) => void,
+  onError?: (
+    error: Error,
+  ) => void,
 ): () => void {
-
   return subscribeCustomProjectMessages(
     projectId,
     callback,

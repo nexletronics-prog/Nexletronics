@@ -1,15 +1,11 @@
-import {
-  auth,
-} from "../firebase/config";
+import { auth } from "../firebase/config";
 
+const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+if (!supabaseUrl) {
+  throw new Error("Missing VITE_SUPABASE_URL in .env.local");
+}
 
-const SUPABASE_URL =
-  "https://ivbkgfwyocmazhrqibqn.supabase.co";
-
-
-const FUNCTION_URL =
-  `${SUPABASE_URL}/functions/v1/printing-upload`;
-
+const FUNCTION_URL = `${supabaseUrl}/functions/v1/printing-upload`;
 
 interface DownloadResponse {
   success?: boolean;
@@ -17,145 +13,53 @@ interface DownloadResponse {
   error?: string;
 }
 
-
-export async function getPrintingFileDownloadUrl(
-  storagePath: string,
-): Promise<string> {
-
-  if (
-    !storagePath.trim()
-  ) {
-
-    throw new Error(
-      "STL storage path is missing.",
-    );
+export async function getPrintingFileDownloadUrl(storagePath: string): Promise<string> {
+  if (!storagePath.trim()) {
+    throw new Error("STL storage path is missing.");
   }
 
-
-  const user =
-    auth.currentUser;
-
-
-  if (
-    !user
-  ) {
-
-    throw new Error(
-      "Please sign in again.",
-    );
+  const user = auth.currentUser;
+  if (!user) {
+    throw new Error("Please sign in again.");
   }
 
+  const token = await user.getIdToken(true);
+  const response = await fetch(FUNCTION_URL, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ action: "download-stl", path: storagePath }),
+  });
 
-  const token =
-    await user.getIdToken(
-      true,
-    );
-
-
-  const response =
-    await fetch(
-      FUNCTION_URL,
-      {
-        method:
-          "POST",
-
-        headers: {
-          Authorization:
-            `Bearer ${token}`,
-
-          "Content-Type":
-            "application/json",
-        },
-
-        body:
-          JSON.stringify({
-            action:
-              "download-stl",
-
-            path:
-              storagePath,
-          }),
-      },
-    );
-
-
-  const result =
-    (
-      await response.json()
-    ) as DownloadResponse;
-
-
-  if (
-    response.status ===
-    401
-  ) {
-
-    throw new Error(
-      "Your Firebase session is invalid or expired.",
-    );
+  let result: DownloadResponse = {};
+  try {
+    result = (await response.json()) as DownloadResponse;
+  } catch {
+    throw new Error(`Unable to parse STL download response (HTTP ${response.status}).`);
   }
 
-
-  if (
-    response.status ===
-    403
-  ) {
-
-    throw new Error(
-      "Administrator access is required.",
-    );
+  if (response.status === 401) {
+    throw new Error("Your Firebase session is invalid or expired.");
   }
-
-
-  if (
-    !response.ok
-  ) {
-
-    throw new Error(
-      result.error ||
-        "Unable to generate STL download link.",
-    );
+  if (response.status === 403) {
+    throw new Error("Administrator access is required.");
   }
-
-
-  if (
-    !result.url
-  ) {
-
-    throw new Error(
-      "No secure STL download URL was returned.",
-    );
+  if (!response.ok) {
+    throw new Error(result.error || "Unable to generate STL download link.");
   }
-
+  if (!result.url) {
+    throw new Error("No secure STL download URL was returned.");
+  }
 
   return result.url;
 }
 
-
-export async function openPrintingStlFile(
-  storagePath: string,
-): Promise<void> {
-
-  const url =
-    await getPrintingFileDownloadUrl(
-      storagePath,
-    );
-
-
-  const popup =
-    window.open(
-      url,
-      "_blank",
-      "noopener,noreferrer",
-    );
-
-
-  if (
-    !popup
-  ) {
-
-    throw new Error(
-      "Your browser blocked the STL download window.",
-    );
+export async function openPrintingStlFile(storagePath: string): Promise<void> {
+  const url = await getPrintingFileDownloadUrl(storagePath);
+  const popup = window.open(url, "_blank", "noopener,noreferrer");
+  if (!popup) {
+    throw new Error("Your browser blocked the STL download window.");
   }
 }

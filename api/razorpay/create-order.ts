@@ -1,35 +1,50 @@
-import type {
-  Auth,
-} from "firebase-admin/auth";
+import {
+  createClient,
+} from "@supabase/supabase-js";
 
-import type {
-  Firestore,
-} from "firebase-admin/firestore";
+import {
+  requireAuth,
+} from "../_lib/require-auth.mjs";
+
 
 interface CartItemInput {
   productId: string;
+
   quantity: number;
 }
 
+
 interface AddressInput {
   name?: string;
+
   email?: string;
+
   phone?: string;
+
   address?: string;
+
   city?: string;
+
   state?: string;
+
   pincode?: string;
+
   country?: string;
+
   companyName?: string;
+
   gstin?: string;
 }
+
 
 interface CreateOrderBody {
   items: CartItemInput[];
 
   customer?: {
     name?: string;
+
     email?: string;
+
     phone?: string;
   };
 
@@ -40,86 +55,115 @@ interface CreateOrderBody {
   billingAddressSameAsShipping?: boolean;
 }
 
+
 function json(
   data: unknown,
   status = 200,
 ) {
-  return Response.json(data, {
-    status,
-    headers: {
-      "Content-Type":
-        "application/json",
-      "Cache-Control":
-        "no-store",
+  return Response.json(
+    data,
+    {
+      status,
+
+      headers: {
+        "Content-Type":
+          "application/json",
+
+        "Cache-Control":
+          "no-store",
+      },
     },
-  });
+  );
 }
+
 
 function cleanString(
   value: unknown,
 ): string {
-  return typeof value === "string"
+  return typeof value ===
+    "string"
     ? value.trim()
     : "";
 }
 
+
 function normalizeQuantity(
   value: unknown,
 ): number {
-  const quantity = Number(value);
+  const quantity =
+    Number(
+      value,
+    );
+
 
   if (
-    !Number.isInteger(quantity) ||
-    quantity <= 0
+    !Number.isInteger(
+      quantity,
+    ) ||
+    quantity <=
+      0
   ) {
     return 0;
   }
 
+
   return quantity;
 }
+
 
 function normalizeAddress(
   address:
     | AddressInput
     | undefined,
 ) {
-  if (!address) {
+  if (
+    !address
+  ) {
     return null;
   }
 
+
   return {
-    name: cleanString(
-      address.name,
-    ),
+    name:
+      cleanString(
+        address.name,
+      ),
 
-    email: cleanString(
-      address.email,
-    ),
+    email:
+      cleanString(
+        address.email,
+      ).toLowerCase(),
 
-    phone: cleanString(
-      address.phone,
-    ),
+    phone:
+      cleanString(
+        address.phone,
+      ),
 
-    address: cleanString(
-      address.address,
-    ),
+    address:
+      cleanString(
+        address.address,
+      ),
 
-    city: cleanString(
-      address.city,
-    ),
+    city:
+      cleanString(
+        address.city,
+      ),
 
-    state: cleanString(
-      address.state,
-    ),
+    state:
+      cleanString(
+        address.state,
+      ),
 
-    pincode: cleanString(
-      address.pincode,
-    ),
+    pincode:
+      cleanString(
+        address.pincode,
+      ),
 
     country:
       cleanString(
         address.country,
-      ) || "India",
+      ) ||
+      "India",
 
     companyName:
       cleanString(
@@ -133,209 +177,128 @@ function normalizeAddress(
   };
 }
 
-async function getFirebaseAdmin(): Promise<{
-  auth: Auth;
-  db: Firestore;
-}> {
-  /*
-   * Lazy imports.
-   *
-   * This is intentional so a Firebase Admin
-   * module-resolution problem becomes a normal
-   * JSON error instead of a Vercel function
-   * invocation crash.
-   */
-  const appModule =
-    await import(
-      "firebase-admin/app"
-    );
 
-  const authModule =
-    await import(
-      "firebase-admin/auth"
-    );
+function getSupabaseAdmin() {
+  const url =
+    process.env.VITE_SUPABASE_URL;
 
-  const firestoreModule =
-    await import(
-      "firebase-admin/firestore"
-    );
+  const serviceRoleKey =
+    process.env.SUPABASE_SERVICE_ROLE_KEY;
 
-  const {
-    cert,
-    getApps,
-    initializeApp,
-  } = appModule;
 
-  const {
-    getAuth,
-  } = authModule;
-
-  const {
-    getFirestore,
-  } = firestoreModule;
-
-  const projectId =
-    process.env.FIREBASE_PROJECT_ID;
-
-  const clientEmail =
-    process.env.FIREBASE_CLIENT_EMAIL;
-
-  const privateKey =
-    process.env.FIREBASE_PRIVATE_KEY;
-
-  if (!projectId) {
+  if (!url) {
     throw new Error(
-      "Missing FIREBASE_PROJECT_ID",
+      "Missing VITE_SUPABASE_URL.",
     );
   }
 
-  if (!clientEmail) {
+
+  if (!serviceRoleKey) {
     throw new Error(
-      "Missing FIREBASE_CLIENT_EMAIL",
+      "Missing SUPABASE_SERVICE_ROLE_KEY.",
     );
   }
 
-  if (!privateKey) {
-    throw new Error(
-      "Missing FIREBASE_PRIVATE_KEY",
-    );
-  }
 
-  const firebaseAdminApp =
-    getApps().length > 0
-      ? getApps()[0]
-      : initializeApp({
-          credential: cert({
-            projectId,
-            clientEmail,
-            privateKey:
-              privateKey.replace(
-                /\\n/g,
-                "\n",
-              ),
-          }),
+  return createClient(
+    url,
+    serviceRoleKey,
+    {
+      auth: {
+        persistSession:
+          false,
 
-          databaseURL:
-            "https://nexletronics-81270-default-rtdb.asia-southeast1.firebasedatabase.app",
-        });
-
-  return {
-    auth:
-      getAuth(
-        firebaseAdminApp,
-      ),
-
-    db:
-      getFirestore(
-        firebaseAdminApp,
-      ),
-  };
-}
-
-async function requireAuthenticatedUser(
-  request: Request,
-) {
-  const authorization =
-    request.headers.get(
-      "authorization",
-    );
-
-  if (!authorization) {
-    throw new Error(
-      "Missing Authorization header",
-    );
-  }
-
-  if (
-    !authorization.startsWith(
-      "Bearer ",
-    )
-  ) {
-    throw new Error(
-      "Invalid Authorization header",
-    );
-  }
-
-  const idToken =
-    authorization
-      .slice("Bearer ".length)
-      .trim();
-
-  if (!idToken) {
-    throw new Error(
-      "Missing Firebase ID token",
-    );
-  }
-
-  const {
-    auth,
-  } = await getFirebaseAdmin();
-
-  return auth.verifyIdToken(
-    idToken,
+        autoRefreshToken:
+          false,
+      },
+    },
   );
 }
+
 
 export async function POST(
   request: Request,
 ) {
   try {
-    console.log(
-      "[create-order] Function started",
-    );
+    /*
+     * ======================================================
+     * FIREBASE AUTH
+     * ======================================================
+     */
 
     const user =
-      await requireAuthenticatedUser(
+      await requireAuth(
         request,
       );
 
-    console.log(
-      "[create-order] Firebase user verified:",
-      user.uid,
-    );
+
+    /*
+     * ======================================================
+     * RAZORPAY CONFIG
+     * ======================================================
+     */
 
     const keyId =
-      process.env.RAZORPAY_KEY_ID;
+      process.env
+        .RAZORPAY_KEY_ID;
 
     const keySecret =
-      process.env.RAZORPAY_KEY_SECRET;
+      process.env
+        .RAZORPAY_KEY_SECRET;
 
-    if (!keyId) {
+
+    if (
+      !keyId ||
+      !keySecret
+    ) {
       return json(
         {
-          success: false,
+          success:
+            false,
+
           error:
-            "RAZORPAY_KEY_ID is missing.",
+            "Razorpay server configuration is missing.",
         },
         500,
       );
     }
 
-    if (!keySecret) {
-      return json(
-        {
-          success: false,
-          error:
-            "RAZORPAY_KEY_SECRET is missing.",
-        },
-        500,
-      );
-    }
+
+    /*
+     * ======================================================
+     * SUPABASE ADMIN
+     * ======================================================
+     */
+
+    const supabase =
+      getSupabaseAdmin();
+
+
+    /*
+     * ======================================================
+     * REQUEST
+     * ======================================================
+     */
 
     const body =
-      (await request.json()) as
-        CreateOrderBody;
+      (
+        await request.json()
+      ) as CreateOrderBody;
+
 
     if (
       !body ||
       !Array.isArray(
         body.items,
       ) ||
-      body.items.length === 0
+      body.items.length ===
+        0
     ) {
       return json(
         {
-          success: false,
+          success:
+            false,
+
           error:
             "Cart is empty.",
         },
@@ -343,31 +306,43 @@ export async function POST(
       );
     }
 
+
     const requestedItems =
       body.items
-        .map((item) => ({
-          productId:
-            cleanString(
-              item?.productId,
-            ),
+        .map(
+          (
+            item,
+          ) => ({
+            productId:
+              cleanString(
+                item?.productId,
+              ),
 
-          quantity:
-            normalizeQuantity(
-              item?.quantity,
-            ),
-        }))
+            quantity:
+              normalizeQuantity(
+                item?.quantity,
+              ),
+          }),
+        )
         .filter(
-          (item) =>
+          (
+            item,
+          ) =>
             item.productId &&
-            item.quantity > 0,
+            item.quantity >
+              0,
         );
 
+
     if (
-      requestedItems.length === 0
+      requestedItems.length ===
+      0
     ) {
       return json(
         {
-          success: false,
+          success:
+            false,
+
           error:
             "No valid cart items were provided.",
         },
@@ -375,12 +350,16 @@ export async function POST(
       );
     }
 
+
     if (
-      requestedItems.length > 50
+      requestedItems.length >
+      50
     ) {
       return json(
         {
-          success: false,
+          success:
+            false,
+
           error:
             "Too many cart items.",
         },
@@ -388,38 +367,87 @@ export async function POST(
       );
     }
 
-    const {
-      db,
-    } = await getFirebaseAdmin();
 
-    console.log(
-      "[create-order] Firestore initialized",
-    );
+    /*
+     * ======================================================
+     * COMBINE DUPLICATES
+     * ======================================================
+     */
 
-    const uniqueProductIds =
+    const quantities =
+      new Map<
+        string,
+        number
+      >();
+
+
+    for (
+      const item of
+        requestedItems
+    ) {
+      quantities.set(
+        item.productId,
+        (
+          quantities.get(
+            item.productId,
+          ) ??
+          0
+        ) +
+          item.quantity,
+      );
+    }
+
+
+    const productIds =
       Array.from(
-        new Set(
-          requestedItems.map(
-            (item) =>
-              item.productId,
-          ),
-        ),
+        quantities.keys(),
       );
 
-    const productSnapshots =
-      await Promise.all(
-        uniqueProductIds.map(
-          (productId) =>
-            db
-              .collection(
-                "products",
-              )
-              .doc(
-                productId,
-              )
-              .get(),
-        ),
-      );
+
+    /*
+     * ======================================================
+     * LOAD PRODUCTS FROM SUPABASE
+     * ======================================================
+     *
+     * This is now the single application source of truth.
+     */
+
+    const {
+      data: products,
+      error:
+        productsError,
+    } =
+      await supabase
+        .from(
+          "products",
+        )
+        .select(
+          `
+            id,
+            name,
+            sku,
+            price,
+            stock,
+            available,
+            active,
+            image,
+            image_url,
+            thumbnail_image,
+            category
+          `,
+        )
+        .in(
+          "id",
+          productIds,
+        );
+
+
+    if (
+      productsError
+    ) {
+      throw productsError;
+    }
+
 
     const productMap =
       new Map<
@@ -430,27 +458,35 @@ export async function POST(
         >
       >();
 
+
     for (
-      const snapshot
-      of productSnapshots
+      const product of
+        (
+          products ??
+          []
+        ) as Record<
+          string,
+          unknown
+        >[]
     ) {
-      if (
-        snapshot.exists
-      ) {
-        productMap.set(
-          snapshot.id,
-          (
-            snapshot.data() ??
-            {}
-          ) as Record<
-            string,
-            unknown
-          >,
-        );
-      }
+      productMap.set(
+        String(
+          product.id,
+        ),
+        product,
+      );
     }
 
-    let subtotal = 0;
+
+    /*
+     * ======================================================
+     * VALIDATE PRODUCTS
+     * ======================================================
+     */
+
+    let subtotal =
+      0;
+
 
     const validatedItems:
       Array<{
@@ -459,38 +495,60 @@ export async function POST(
         quantity: number;
         unitPrice: number;
         lineTotal: number;
-        sku: string;
+        sku?: string;
+        image?: string;
+        category?: string;
       }> = [];
 
+
     for (
-      const item
-      of requestedItems
+      const productId of
+        productIds
     ) {
+      const quantity =
+        quantities.get(
+          productId,
+        ) ??
+        0;
+
+
       const product =
         productMap.get(
-          item.productId,
+          productId,
         );
 
-      if (!product) {
+
+      if (
+        !product
+      ) {
         return json(
           {
-            success: false,
+            success:
+              false,
+
             error:
-              `Product ${item.productId} was not found.`,
+              `Product ${productId} was not found.`,
           },
           400,
         );
       }
+
 
       const available =
         product.available ??
         product.active ??
         false;
 
-      if (!available) {
+
+      if (
+        available !==
+        true
+      ) {
         return json(
           {
-            success: false,
+            success:
+              false,
+
             error:
               `${
                 product.name ??
@@ -501,61 +559,73 @@ export async function POST(
         );
       }
 
+
       const unitPrice =
         Number(
           product.price,
         );
 
+
       if (
         !Number.isFinite(
           unitPrice,
         ) ||
-        unitPrice < 0
+        unitPrice <
+          0
       ) {
         return json(
           {
-            success: false,
+            success:
+              false,
+
             error:
               `Invalid price configured for ${
                 product.name ??
-                item.productId
+                productId
               }.`,
           },
           500,
         );
       }
+
 
       const stock =
         Number(
           product.stock,
         );
 
+
       if (
         !Number.isFinite(
           stock,
         ) ||
-        stock < 0
+        stock <
+          0
       ) {
         return json(
           {
-            success: false,
+            success:
+              false,
+
             error:
               `Invalid stock configured for ${
                 product.name ??
-                item.productId
+                productId
               }.`,
           },
           500,
         );
       }
 
+
       if (
-        item.quantity >
+        quantity >
         stock
       ) {
         return json(
           {
-            success: false,
+            success:
+              false,
 
             error:
               `${
@@ -567,22 +637,36 @@ export async function POST(
               stock,
 
             requestedQuantity:
-              item.quantity,
+              quantity,
           },
           400,
         );
       }
 
+
       const lineTotal =
         unitPrice *
-        item.quantity;
+        quantity;
+
 
       subtotal +=
         lineTotal;
 
+
+      const image =
+        cleanString(
+          product.thumbnail_image,
+        ) ||
+        cleanString(
+          product.image_url,
+        ) ||
+        cleanString(
+          product.image,
+        );
+
+
       validatedItems.push({
-        productId:
-          item.productId,
+        productId,
 
         name:
           cleanString(
@@ -590,8 +674,7 @@ export async function POST(
           ) ||
           "Unnamed product",
 
-        quantity:
-          item.quantity,
+        quantity,
 
         unitPrice,
 
@@ -600,13 +683,53 @@ export async function POST(
         sku:
           cleanString(
             product.sku,
-          ),
+          ) ||
+          undefined,
+
+        image:
+          image ||
+          undefined,
+
+        category:
+          cleanString(
+            product.category,
+          ) ||
+          undefined,
       });
     }
 
-    const shippingAmount = 0;
-    const taxAmount = 0;
-    const discountAmount = 0;
+
+    subtotal =
+      Math.round(
+        (
+          subtotal +
+          Number.EPSILON
+        ) *
+          100,
+      ) /
+      100;
+
+
+    /*
+     * ======================================================
+     * SHIPPING
+     * ======================================================
+     *
+     * Keep the existing Checkout behaviour:
+     * create-order currently uses free shipping.
+     */
+
+    const shippingAmount =
+      0;
+
+
+    const taxAmount =
+      0;
+
+
+    const discountAmount =
+      0;
+
 
     const total =
       Math.max(
@@ -617,20 +740,26 @@ export async function POST(
           discountAmount,
       );
 
+
     const amountInPaise =
       Math.round(
-        total * 100,
+        total *
+          100,
       );
+
 
     if (
       !Number.isInteger(
         amountInPaise,
       ) ||
-      amountInPaise <= 0
+      amountInPaise <=
+        0
     ) {
       return json(
         {
-          success: false,
+          success:
+            false,
+
           error:
             "Calculated order amount is invalid.",
         },
@@ -638,27 +767,38 @@ export async function POST(
       );
     }
 
+
+    /*
+     * ======================================================
+     * CUSTOMER DATA
+     * ======================================================
+     */
+
     const shippingAddress =
       normalizeAddress(
         body.shippingAddress,
       );
+
 
     let billingAddress =
       normalizeAddress(
         body.billingAddress,
       );
 
-    const sameAsShipping =
+
+    const billingSame =
       body.billingAddressSameAsShipping ===
       true;
 
+
     if (
-      sameAsShipping &&
+      billingSame &&
       shippingAddress
     ) {
       billingAddress =
         shippingAddress;
     }
+
 
     const customerName =
       cleanString(
@@ -666,8 +806,8 @@ export async function POST(
       ) ||
       cleanString(
         user.name,
-      ) ||
-      "";
+      );
+
 
     const customerEmail =
       cleanString(
@@ -675,13 +815,37 @@ export async function POST(
       ) ||
       cleanString(
         user.email,
-      ) ||
-      "";
+      );
+
 
     const customerPhone =
       cleanString(
         body.customer?.phone,
       );
+
+
+    if (
+      !customerName ||
+      !customerEmail
+    ) {
+      return json(
+        {
+          success:
+            false,
+
+          error:
+            "Customer name and email are required.",
+        },
+        400,
+      );
+    }
+
+
+    /*
+     * ======================================================
+     * RAZORPAY ORDER
+     * ======================================================
+     */
 
     const receipt =
       `NX-${Date.now()}-${user.uid.slice(
@@ -689,61 +853,63 @@ export async function POST(
         8,
       )}`;
 
-    const authHeader =
+
+    const authorization =
       Buffer.from(
         `${keyId}:${keySecret}`,
       ).toString(
         "base64",
       );
 
-    console.log(
-      "[create-order] Creating Razorpay order",
-    );
 
     const razorpayResponse =
       await fetch(
         "https://api.razorpay.com/v1/orders",
         {
-          method: "POST",
+          method:
+            "POST",
 
           headers: {
             "Content-Type":
               "application/json",
 
             Authorization:
-              `Basic ${authHeader}`,
+              `Basic ${authorization}`,
           },
 
-          body: JSON.stringify({
-            amount:
-              amountInPaise,
+          body:
+            JSON.stringify({
+              amount:
+                amountInPaise,
 
-            currency:
-              "INR",
+              currency:
+                "INR",
 
-            receipt,
+              receipt,
 
-            payment_capture:
-              1,
+              payment_capture:
+                1,
 
-            notes: {
-              firebaseUid:
-                user.uid,
+              notes: {
+                firebaseUid:
+                  user.uid,
 
-              email:
-                customerEmail,
+                email:
+                  customerEmail,
 
-              items:
-                String(
-                  validatedItems.length,
-                ),
-            },
-          }),
+                itemCount:
+                  String(
+                    validatedItems.length,
+                  ),
+              },
+            }),
         },
       );
 
+
     const razorpayData =
       await razorpayResponse.json();
+
 
     if (
       !razorpayResponse.ok
@@ -753,25 +919,34 @@ export async function POST(
         razorpayData,
       );
 
+
       return json(
         {
-          success: false,
+          success:
+            false,
+
           error:
             "Unable to create Razorpay order.",
-
-          razorpayStatus:
-            razorpayResponse.status,
         },
         502,
       );
     }
 
+
+    const razorpayOrderId =
+      cleanString(
+        razorpayData?.id,
+      );
+
+
     if (
-      !razorpayData?.id
+      !razorpayOrderId
     ) {
       return json(
         {
-          success: false,
+          success:
+            false,
+
           error:
             "Razorpay did not return an order ID.",
         },
@@ -779,78 +954,120 @@ export async function POST(
       );
     }
 
-    await db
-      .collection(
-        "paymentSessions",
-      )
-      .doc(
-        razorpayData.id,
-      )
-      .set({
-        razorpayOrderId:
-          razorpayData.id,
 
-        receipt,
+    /*
+     * ======================================================
+     * SAVE PAYMENT SESSION IN SUPABASE
+     * ======================================================
+     */
 
-        userId:
-          user.uid,
+    const {
+      error:
+        sessionError,
+    } =
+      await supabase
+        .from(
+          "payment_sessions",
+        )
+        .insert({
+          razorpay_order_id:
+            razorpayOrderId,
 
-        userEmail:
-          customerEmail,
+          receipt,
 
-        customer: {
-          name:
-            customerName,
+          user_id:
+            user.uid,
 
-          email:
+          user_email:
             customerEmail,
 
-          phone:
-            customerPhone,
+          customer: {
+            name:
+              customerName,
+
+            email:
+              customerEmail,
+
+            phone:
+              customerPhone,
+          },
+
+          items:
+            validatedItems,
+
+          shipping_address:
+            shippingAddress,
+
+          billing_address:
+            billingAddress,
+
+          billing_address_same_as_shipping:
+            billingSame,
+
+          subtotal,
+
+          shipping_amount:
+            shippingAmount,
+
+          tax_amount:
+            taxAmount,
+
+          discount_amount:
+            discountAmount,
+
+          total,
+
+          amount_in_paise:
+            amountInPaise,
+
+          currency:
+            "INR",
+
+          status:
+            "created",
+
+          created_at:
+            new Date().toISOString(),
+
+          updated_at:
+            new Date().toISOString(),
+        });
+
+
+    if (
+      sessionError
+    ) {
+      console.error(
+        "[create-order] Failed to save payment session:",
+        sessionError,
+      );
+
+
+      return json(
+        {
+          success:
+            false,
+
+          error:
+            "Unable to initialize payment session.",
         },
+        500,
+      );
+    }
 
-        items:
-          validatedItems,
 
-        shippingAddress,
-
-        billingAddress,
-
-        billingAddressSameAsShipping:
-          sameAsShipping,
-
-        subtotal,
-
-        shippingAmount,
-
-        taxAmount,
-
-        discountAmount,
-
-        total,
-
-        amountInPaise,
-
-        currency:
-          "INR",
-
-        status:
-          "created",
-
-        createdAt:
-          new Date(),
-      });
-
-    console.log(
-      "[create-order] Payment session saved:",
-      razorpayData.id,
-    );
+    /*
+     * ======================================================
+     * RESPONSE
+     * ======================================================
+     */
 
     return json({
-      success: true,
+      success:
+        true,
 
       orderId:
-        razorpayData.id,
+        razorpayOrderId,
 
       keyId,
 
@@ -878,25 +1095,25 @@ export async function POST(
       items:
         validatedItems,
     });
-  } catch (error) {
+
+  } catch (
+    error
+  ) {
     console.error(
       "[create-order] FATAL ERROR:",
       error,
     );
 
+
     return json(
       {
-        success: false,
+        success:
+          false,
 
         error:
           error instanceof Error
             ? error.message
-            : String(error),
-
-        errorName:
-          error instanceof Error
-            ? error.name
-            : "UnknownError",
+            : "Unable to create payment order.",
       },
       500,
     );

@@ -1,298 +1,214 @@
-import {
-  doc,
-  getDoc,
-  onSnapshot,
-  serverTimestamp,
-  setDoc,
-  type Unsubscribe,
-} from "firebase/firestore";
-
-import { db } from "../firebase/config";
-
 import { supabase } from "../lib/supabase";
-
 import {
   defaultHomepage3DModel,
   type Homepage3DModel,
 } from "../types/homepage3DModel";
 
-export const HOMEPAGE_3D_MODEL_DOCUMENT =
-  "homepage3DModel";
+export const HOMEPAGE_3D_MODEL_DOCUMENT = "current";
+export const HOMEPAGE_3D_MODEL_STORAGE_FOLDER = "homepage-3d";
+export const HOMEPAGE_3D_MODEL_BUCKET = "homepage-3d";
+export const MAX_HOMEPAGE_3D_FILE_SIZE = 50 * 1024 * 1024;
 
-export const HOMEPAGE_3D_STORAGE_BUCKET =
-  "homepage-3d";
+const MODEL_TABLE = "homepage_3d_models";
+const MODEL_ID = "current";
 
-export const HOMEPAGE_3D_STORAGE_FOLDER =
-  "current";
-
-export const MAX_HOMEPAGE_3D_FILE_SIZE =
-  50 * 1024 * 1024;
-
-const MIN_ROTATION_SPEED = 0.1;
-
-const MAX_ROTATION_SPEED = 2.5;
-
-const MIN_ZOOM_LEVEL = 0.5;
-
-const MAX_ZOOM_LEVEL = 2;
-
-function homepage3DModelRef() {
-  return doc(
-    db,
-    "siteSettings",
-    HOMEPAGE_3D_MODEL_DOCUMENT,
-  );
+interface ModelRow {
+  id: string;
+  enabled: boolean | null;
+  title: string | null;
+  description: string | null;
+  file_url: string | null;
+  storage_path: string | null;
+  original_file_name: string | null;
+  rotation_enabled: boolean | null;
+  rotation_speed: number | null;
+  zoom_enabled: boolean | null;
+  zoom_level: number | null;
+  updated_at: string | null;
 }
 
-/*
- * =========================================================
- * NORMALIZE MODEL
- * =========================================================
- */
+const MODEL_COLUMNS = `
+  id,
+  enabled,
+  title,
+  description,
+  file_url,
+  storage_path,
+  original_file_name,
+  rotation_enabled,
+  rotation_speed,
+  zoom_enabled,
+  zoom_level,
+  updated_at
+`;
 
-function normalizeHomepage3DModel(
-  data?: Partial<Homepage3DModel>,
-): Homepage3DModel {
-  const value = data ?? {};
+function clampNumber(value: unknown, fallback: number, min: number, max: number): number {
+  const number = Number(value);
+  if (!Number.isFinite(number)) return fallback;
+  return Math.min(max, Math.max(min, number));
+}
 
-  const rotationSpeed =
-    typeof value.rotationSpeed ===
-      "number" &&
-    Number.isFinite(
-      value.rotationSpeed,
-    )
-      ? Math.min(
-          MAX_ROTATION_SPEED,
-          Math.max(
-            MIN_ROTATION_SPEED,
-            value.rotationSpeed,
-          ),
-        )
-      : defaultHomepage3DModel.rotationSpeed;
-
-  const zoomLevel =
-    typeof value.zoomLevel ===
-      "number" &&
-    Number.isFinite(
-      value.zoomLevel,
-    )
-      ? Math.min(
-          MAX_ZOOM_LEVEL,
-          Math.max(
-            MIN_ZOOM_LEVEL,
-            value.zoomLevel,
-          ),
-        )
-      : defaultHomepage3DModel.zoomLevel;
+function normalizeHomepage3DModel(row?: Partial<ModelRow> | null): Homepage3DModel {
+  if (!row) return { ...defaultHomepage3DModel };
 
   return {
     ...defaultHomepage3DModel,
-
-    ...value,
-
     id: "current",
-
     enabled:
-      typeof value.enabled ===
-      "boolean"
-        ? value.enabled
+      typeof row.enabled === "boolean"
+        ? row.enabled
         : defaultHomepage3DModel.enabled,
-
     title:
-      typeof value.title ===
-        "string" &&
-      value.title.trim()
-        ? value.title.trim()
+      typeof row.title === "string" && row.title.trim()
+        ? row.title.trim()
         : defaultHomepage3DModel.title,
-
     description:
-      typeof value.description ===
-        "string"
-        ? value.description.trim()
+      typeof row.description === "string"
+        ? row.description.trim()
         : defaultHomepage3DModel.description,
-
-    fileUrl:
-      typeof value.fileUrl ===
-        "string"
-        ? value.fileUrl
-        : "",
-
-    storagePath:
-      typeof value.storagePath ===
-        "string"
-        ? value.storagePath
-        : "",
-
+    fileUrl: typeof row.file_url === "string" ? row.file_url : "",
+    storagePath: typeof row.storage_path === "string" ? row.storage_path : "",
     originalFileName:
-      typeof value.originalFileName ===
-        "string"
-        ? value.originalFileName
+      typeof row.original_file_name === "string"
+        ? row.original_file_name
         : "",
-
     rotationEnabled:
-      typeof value.rotationEnabled ===
-      "boolean"
-        ? value.rotationEnabled
+      typeof row.rotation_enabled === "boolean"
+        ? row.rotation_enabled
         : defaultHomepage3DModel.rotationEnabled,
-
-    rotationSpeed,
-
+    rotationSpeed: clampNumber(
+      row.rotation_speed,
+      defaultHomepage3DModel.rotationSpeed,
+      0.1,
+      2.5,
+    ),
     zoomEnabled:
-      typeof value.zoomEnabled ===
-      "boolean"
-        ? value.zoomEnabled
+      typeof row.zoom_enabled === "boolean"
+        ? row.zoom_enabled
         : defaultHomepage3DModel.zoomEnabled,
-
-    zoomLevel,
+    zoomLevel: clampNumber(
+      row.zoom_level,
+      defaultHomepage3DModel.zoomLevel,
+      0.5,
+      2,
+    ),
+    updatedAt: row.updated_at ?? undefined,
   };
 }
 
-/*
- * =========================================================
- * GET MODEL
- * =========================================================
- */
+function toRow(model: Homepage3DModel) {
+  return {
+    id: MODEL_ID,
+    enabled: Boolean(model.enabled),
+    title: model.title.trim() || defaultHomepage3DModel.title,
+    description: model.description.trim(),
+    file_url: model.fileUrl.trim(),
+    storage_path: model.storagePath.trim(),
+    original_file_name: model.originalFileName.trim(),
+    rotation_enabled: Boolean(model.rotationEnabled),
+    rotation_speed: clampNumber(
+      model.rotationSpeed,
+      defaultHomepage3DModel.rotationSpeed,
+      0.1,
+      2.5,
+    ),
+    zoom_enabled: Boolean(model.zoomEnabled),
+    zoom_level: clampNumber(
+      model.zoomLevel,
+      defaultHomepage3DModel.zoomLevel,
+      0.5,
+      2,
+    ),
+  };
+}
 
 export async function getHomepage3DModel(): Promise<Homepage3DModel> {
-  const snapshot =
-    await getDoc(
-      homepage3DModelRef(),
-    );
+  const { data, error } = await supabase
+    .from(MODEL_TABLE)
+    .select(MODEL_COLUMNS)
+    .eq("id", MODEL_ID)
+    .maybeSingle();
 
-  if (!snapshot.exists()) {
-    return defaultHomepage3DModel;
+  if (error) {
+    console.error("Failed to load homepage 3D model:", error);
+    return { ...defaultHomepage3DModel };
   }
 
-  return normalizeHomepage3DModel(
-    snapshot.data() as Partial<Homepage3DModel>,
-  );
+  return normalizeHomepage3DModel((data ?? null) as ModelRow | null);
 }
-
-/*
- * =========================================================
- * REAL-TIME LISTENER
- * =========================================================
- */
 
 export function subscribeToHomepage3DModel(
-  onChange: (
-    model: Homepage3DModel,
-  ) => void,
+  onChange: (model: Homepage3DModel) => void,
+  onError?: (error: Error) => void,
+): () => void {
+  let active = true;
 
-  onError?: (
-    error: Error,
-  ) => void,
-): Unsubscribe {
-  return onSnapshot(
-    homepage3DModelRef(),
+  void getHomepage3DModel()
+    .then((model) => {
+      if (active) onChange(model);
+    })
+    .catch((error) => {
+      if (!active) return;
+      const normalized =
+        error instanceof Error ? error : new Error(String(error));
+      onError?.(normalized);
+    });
 
-    (snapshot) => {
-      if (!snapshot.exists()) {
-        onChange(
-          defaultHomepage3DModel,
-        );
+  const channel = supabase
+    .channel(`homepage-3d-model-${MODEL_ID}`)
+    .on(
+      "postgres_changes",
+      {
+        event: "*",
+        schema: "public",
+        table: MODEL_TABLE,
+        filter: `id=eq.${MODEL_ID}`,
+      },
+      (payload) => {
+        if (!active) return;
 
-        return;
+        if (payload.eventType === "DELETE") {
+          onChange({ ...defaultHomepage3DModel });
+          return;
+        }
+
+        onChange(normalizeHomepage3DModel(payload.new as ModelRow));
+      },
+    )
+    .subscribe((status) => {
+      if (!active) return;
+      if (status === "CHANNEL_ERROR" || status === "TIMED_OUT") {
+        onError?.(new Error(`Homepage 3D model realtime channel: ${status}.`));
       }
+    });
 
-      onChange(
-        normalizeHomepage3DModel(
-          snapshot.data() as Partial<Homepage3DModel>,
-        ),
-      );
-    },
-
-    (error) => {
-      console.error(
-        "Homepage 3D model listener failed:",
-        error,
-      );
-
-      onError?.(error);
-    },
-  );
+  return () => {
+    active = false;
+    void supabase.removeChannel(channel);
+  };
 }
 
-/*
- * =========================================================
- * VALIDATE STL
- * =========================================================
- */
-
-function validateHomepage3DModelFile(
-  file: File,
-): void {
-  if (!file) {
-    throw new Error(
-      "Please choose an STL file.",
-    );
+function validateHomepage3DModelFile(file: File): void {
+  if (!file) throw new Error("Please choose an STL file.");
+  if (!file.name.toLowerCase().endsWith(".stl")) {
+    throw new Error("Only .stl files are allowed.");
   }
-
-  if (
-    !file.name
-      .toLowerCase()
-      .endsWith(".stl")
-  ) {
-    throw new Error(
-      "Only .stl files are allowed.",
-    );
-  }
-
-  if (file.size <= 0) {
-    throw new Error(
-      "The STL file is empty.",
-    );
-  }
-
-  if (
-    file.size >
-    MAX_HOMEPAGE_3D_FILE_SIZE
-  ) {
-    throw new Error(
-      "The STL file must be 50 MB or smaller.",
-    );
+  if (file.size <= 0) throw new Error("The STL file is empty.");
+  if (file.size > MAX_HOMEPAGE_3D_FILE_SIZE) {
+    throw new Error("The STL file must be 50 MB or smaller.");
   }
 }
 
-/*
- * =========================================================
- * SAFE FILE NAME
- * =========================================================
- */
+function createSafeFileName(originalName: string): string {
+  const baseName = originalName
+    .replace(/\.stl$/i, "")
+    .replace(/[^a-zA-Z0-9_-]/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^-|-$/g, "")
+    .slice(0, 80);
 
-function createSafeFileName(
-  originalName: string,
-): string {
-  const baseName =
-    originalName
-      .replace(
-        /\.stl$/i,
-        "",
-      )
-      .replace(
-        /[^a-zA-Z0-9_-]/g,
-        "-",
-      )
-      .replace(
-        /-+/g,
-        "-",
-      )
-      .replace(
-        /^-|-$/g,
-        "",
-      )
-      .slice(0, 80);
-
-  return `${
-    baseName || "model"
-  }-${Date.now()}.stl`;
+  return `${baseName || "model"}-${Date.now()}.stl`;
 }
-
-/*
- * =========================================================
- * UPLOAD STL
- * =========================================================
- */
 
 export async function uploadHomepage3DModelFile(
   file: File,
@@ -301,134 +217,69 @@ export async function uploadHomepage3DModelFile(
   path: string;
   originalFileName: string;
 }> {
-  validateHomepage3DModelFile(
-    file,
-  );
+  validateHomepage3DModelFile(file);
 
-  const fileName =
-    createSafeFileName(
-      file.name,
-    );
+  const fileName = createSafeFileName(file.name);
+  const path = `${HOMEPAGE_3D_MODEL_STORAGE_FOLDER}/current/${fileName}`;
 
-  const path =
-    `${HOMEPAGE_3D_STORAGE_FOLDER}/${fileName}`;
-
-  const {
-    error,
-  } =
-    await supabase.storage
-      .from(
-        HOMEPAGE_3D_STORAGE_BUCKET,
-      )
-      .upload(
-        path,
-        file,
-        {
-          cacheControl: "3600",
-          contentType: "model/stl",
-          upsert: false,
-        },
-      );
+  const { error } = await supabase.storage
+    .from(HOMEPAGE_3D_MODEL_BUCKET)
+    .upload(path, file, {
+      cacheControl: "3600",
+      contentType: "model/stl",
+      upsert: false,
+    });
 
   if (error) {
-    throw new Error(
-      error.message ||
-        "Unable to upload STL file.",
-    );
+    throw new Error(error.message);
   }
 
-  const {
-    data,
-  } =
-    supabase.storage
-      .from(
-        HOMEPAGE_3D_STORAGE_BUCKET,
-      )
-      .getPublicUrl(path);
-
-  if (!data.publicUrl) {
-    throw new Error(
-      "Unable to generate the STL public URL.",
-    );
-  }
+  const { data } = supabase.storage
+    .from(HOMEPAGE_3D_MODEL_BUCKET)
+    .getPublicUrl(path);
 
   return {
     url: data.publicUrl,
     path,
-    originalFileName:
-      file.name,
+    originalFileName: file.name,
   };
 }
-
-/*
- * =========================================================
- * DELETE STL
- * =========================================================
- */
 
 export async function deleteHomepage3DModelFile(
   storagePath: string,
 ): Promise<void> {
-  if (!storagePath.trim()) {
-    return;
-  }
+  const cleanPath = storagePath.trim();
+  if (!cleanPath) return;
 
-  const {
-    error,
-  } =
-    await supabase.storage
-      .from(
-        HOMEPAGE_3D_STORAGE_BUCKET,
-      )
-      .remove([
-        storagePath,
-      ]);
+  const { error } = await supabase.storage
+    .from(HOMEPAGE_3D_MODEL_BUCKET)
+    .remove([cleanPath]);
 
   if (error) {
-    throw new Error(
-      error.message ||
-        "Unable to delete STL file.",
-    );
+    throw new Error(error.message);
   }
 }
-
-/*
- * =========================================================
- * SAVE SETTINGS
- * =========================================================
- */
 
 export async function saveHomepage3DModel(
   model: Homepage3DModel,
 ): Promise<void> {
-  const normalized =
-    normalizeHomepage3DModel(
-      model,
-    );
+  const normalized = normalizeHomepage3DModel(toRow(model));
 
-  await setDoc(
-    homepage3DModelRef(),
-    {
-      ...normalized,
-      updatedAt:
-        serverTimestamp(),
-    },
-  );
+  const { error } = await supabase
+    .from(MODEL_TABLE)
+    .upsert(toRow(normalized));
+
+  if (error) {
+    console.error("Failed to save homepage 3D model:", error);
+    throw new Error(error.message);
+  }
 }
 
-/*
- * =========================================================
- * DISABLE MODEL
- * =========================================================
- */
-
 export async function disableHomepage3DModel(): Promise<void> {
-  await setDoc(
-    homepage3DModelRef(),
-    {
-      ...defaultHomepage3DModel,
-      updatedAt:
-        serverTimestamp(),
-    },
-  );
+  const disabledModel: Homepage3DModel = {
+    ...defaultHomepage3DModel,
+    enabled: false,
+  };
+
+  await saveHomepage3DModel(disabledModel);
 }

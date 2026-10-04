@@ -18,17 +18,8 @@ import {
 } from "react";
 
 import {
-  doc,
-  onSnapshot,
-} from "firebase/firestore";
-
-import {
   useNavigate,
 } from "react-router-dom";
-
-import {
-  db,
-} from "../../firebase/config";
 
 import {
   useAuth,
@@ -41,6 +32,7 @@ import {
 import {
   createPrintingOrder,
   defaultPrintingSettings,
+  subscribePrintingSettings,
   updatePrintingOrder,
 } from "../../services/printing.service";
 
@@ -66,12 +58,6 @@ import type {
  * CONSTANTS
  * ==========================================================
  */
-
-const PRINTING_SETTINGS_PATH =
-  "printingSettings";
-
-const PRINTING_SETTINGS_ID =
-  "default";
 
 const MAX_FILE_SIZE =
   50 * 1024 * 1024;
@@ -225,294 +211,47 @@ export default function Printing3D() {
    * REALTIME SETTINGS
    * ========================================================
    *
-   * The customer page listens directly to:
-   *
-   * printingSettings/default
-   *
-   * Therefore changes made from the admin settings page
-   * are reflected without refreshing the browser.
+   * Settings are now read from Supabase through the service.
+   * The public page remains realtime and falls back safely to
+   * the application defaults when the backend is unavailable.
    */
 
   useEffect(() => {
+    setLoadingSettings(true);
+    setSettingsError("");
 
-    setLoadingSettings(
-      true,
-    );
+    return subscribePrintingSettings(
+      (nextSettings) => {
+        setSettings(nextSettings);
 
-    setSettingsError(
-      "",
-    );
+        setMaterial((currentMaterial) => {
+          const stillAvailable = nextSettings.materials.some(
+            (item) => item.id === currentMaterial && item.active,
+          );
 
-
-    const settingsRef =
-      doc(
-        db,
-        PRINTING_SETTINGS_PATH,
-        PRINTING_SETTINGS_ID,
-      );
-
-
-    const unsubscribe =
-      onSnapshot(
-        settingsRef,
-
-        (
-          snapshot,
-        ) => {
-
-          if (
-            !snapshot.exists()
-          ) {
-
-            /*
-             * No admin settings have been created yet.
-             * Use the application defaults.
-             */
-
-            setSettings(
-              defaultPrintingSettings,
-            );
-
-
-            setSettingsError(
-              "Admin printing settings have not been configured yet. Showing default settings.",
-            );
-
-
-            const firstDefaultMaterial =
-              defaultPrintingSettings.materials.find(
-                (
-                  item,
-                ) =>
-                  item.active,
-              );
-
-
-            if (
-              firstDefaultMaterial
-            ) {
-
-              setMaterial(
-                (
-                  current,
-                ) =>
-                  current ||
-                  firstDefaultMaterial.id,
-              );
-
-            }
-
-
-            setLoadingSettings(
-              false,
-            );
-
-            return;
+          if (stillAvailable) {
+            return currentMaterial;
           }
 
+          return nextSettings.materials.find((item) => item.active)?.id ?? "";
+        });
 
-          const data =
-            snapshot.data();
-
-
-          /*
-           * Normalize the Firestore document so malformed
-           * values cannot break the customer UI.
-           */
-
-          const materials =
-            normalizeMaterials(
-              data.materials,
-            );
-
-
-          const nextSettings:
-            PrintingSettings = {
-
-            printerName:
-              stringOrDefault(
-                data.printerName,
-                "Bambu Lab A1",
-              ),
-
-            buildWidth:
-              numberOrDefault(
-                data.buildWidth,
-                256,
-              ),
-
-            buildDepth:
-              numberOrDefault(
-                data.buildDepth,
-                256,
-              ),
-
-            buildHeight:
-              numberOrDefault(
-                data.buildHeight,
-                256,
-              ),
-
-            materials,
-
-            roughMultiplier:
-              numberOrDefault(
-                data.roughMultiplier,
-                1,
-              ),
-
-            premiumMultiplier:
-              numberOrDefault(
-                data.premiumMultiplier,
-                1.5,
-              ),
-
-            machineRatePerHour:
-              numberOrDefault(
-                data.machineRatePerHour,
-                30,
-              ),
-
-            minimumPrintCharge:
-              numberOrDefault(
-                data.minimumPrintCharge,
-                100,
-              ),
-
-            setupFee:
-              numberOrDefault(
-                data.setupFee,
-                0,
-              ),
-
-            packagingFee:
-              numberOrDefault(
-                data.packagingFee,
-                0,
-              ),
-
-            deliveryFee:
-              numberOrDefault(
-                data.deliveryFee,
-                0,
-              ),
-
-            updatedAt:
-              data.updatedAt,
-          };
-
-
-          setSettings(
-            nextSettings,
-          );
-
-
-          /*
-           * Keep the selected material when possible.
-           *
-           * If admin disabled/deleted it, automatically move
-           * to the first active material.
-           */
-
-          setMaterial(
-            (currentMaterial) => {
-
-              const stillAvailable =
-                nextSettings.materials.some(
-                  (item) =>
-                    item.id === currentMaterial &&
-                    item.active,
-                );
-
-
-              if (stillAvailable) {
-                return currentMaterial;
-              }
-
-
-              return (
-                nextSettings.materials.find(
-                  (item) =>
-                    item.active,
-                )?.id ??
-                ""
-              );
-            },
-          );
-
-
-          setSettingsError(
-            "", 
-          );
-
-
-          setLoadingSettings(
-            false,
-          );
-        },
-
-        (
-          snapshotError,
-        ) => {
-
-          console.error(
-            "Realtime printing settings error:",
-            snapshotError,
-          );
-
-
-          /*
-           * Fall back safely instead of leaving the customer
-           * stuck on "loading".
-           */
-
-          setSettings(
-            defaultPrintingSettings,
-          );
-
-
-          setSettingsError(
-            "Live printing settings are temporarily unavailable. Showing default settings.",
-          );
-
-
-          const firstDefaultMaterial =
-            defaultPrintingSettings.materials.find(
-              (
-                item,
-              ) =>
-                item.active,
-            );
-
-
-          if (
-            firstDefaultMaterial
-          ) {
-
-            setMaterial(
-              (
-                current,
-              ) =>
-                current ||
-                firstDefaultMaterial.id,
-            );
-
-          }
-
-
-          setLoadingSettings(
-            false,
-          );
-        },
-      );
-
-
-    return () => {
-
-      unsubscribe();
-
-    };
-
+        setSettingsError("");
+        setLoadingSettings(false);
+      },
+      (listenerError) => {
+        console.error("Realtime printing settings error:", listenerError);
+        setSettingsError(
+          "Live printing settings are temporarily unavailable. Showing default settings.",
+        );
+        setSettings(defaultPrintingSettings);
+        setMaterial((currentMaterial) => {
+          if (currentMaterial) return currentMaterial;
+          return defaultPrintingSettings.materials.find((item) => item.active)?.id ?? "";
+        });
+        setLoadingSettings(false);
+      },
+    );
   }, []);
 
 
@@ -2379,148 +2118,6 @@ function TrustCard({
 
     </div>
   );
-}
-
-
-/*
- * ==========================================================
- * MATERIAL NORMALIZER
- * ==========================================================
- */
-
-function normalizeMaterials(
-  value: unknown,
-): PrintingSettings["materials"] {
-
-  if (
-    !Array.isArray(
-      value,
-    )
-  ) {
-
-    return [];
-  }
-
-
-  return value
-    .filter(
-      (
-        item,
-      ) =>
-        item &&
-        typeof item ===
-          "object" &&
-        typeof (
-          item as {
-            id?: unknown;
-          }
-        ).id ===
-          "string" &&
-        typeof (
-          item as {
-            name?: unknown;
-          }
-        ).name ===
-          "string",
-    )
-    .map(
-      (
-        item,
-      ) => {
-
-        const material =
-          item as {
-            id: string;
-            name: string;
-            pricePerGram?: unknown;
-            densityGramsPerCm3?: unknown;
-            active?: unknown;
-            description?: unknown;
-          };
-
-
-        return {
-
-          id:
-            material.id,
-
-          name:
-            material.name.trim(),
-
-          pricePerGram:
-            Math.max(
-              0,
-              numberOrDefault(
-                material.pricePerGram,
-                0,
-              ),
-            ),
-
-          densityGramsPerCm3:
-            Math.max(
-              0.01,
-              numberOrDefault(
-                material.densityGramsPerCm3,
-                1.24,
-              ),
-            ),
-
-          active:
-            material.active !==
-            false,
-
-          description:
-            typeof material.description ===
-              "string"
-              ? material.description.trim()
-              : "",
-        };
-      },
-    );
-}
-
-
-/*
- * ==========================================================
- * NUMBER HELPER
- * ==========================================================
- */
-
-function numberOrDefault(
-  value: unknown,
-  fallback: number,
-): number {
-
-  const numeric =
-    Number(
-      value,
-    );
-
-
-  return Number.isFinite(
-    numeric,
-  )
-    ? numeric
-    : fallback;
-}
-
-
-/*
- * ==========================================================
- * STRING HELPER
- * ==========================================================
- */
-
-function stringOrDefault(
-  value: unknown,
-  fallback: string,
-): string {
-
-  return typeof value ===
-    "string" &&
-    value.trim()
-    ? value.trim()
-    : fallback;
 }
 
 

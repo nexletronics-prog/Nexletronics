@@ -5,31 +5,48 @@ import {
 } from "react-router-dom";
 
 import {
-  doc,
-  getDoc,
-} from "firebase/firestore";
-
-import {
   useEffect,
   useState,
 } from "react";
 
-import LoadingSpinner from "../components/common/LoadingSpinner";
-
-import {
-  db,
-} from "../firebase/config";
+import LoadingSpinner
+  from "../components/common/LoadingSpinner";
 
 import {
   useAuth,
 } from "../hooks/useAuth";
 
+import {
+  getCustomerById,
+} from "../services/customer.service";
+
+
+/*
+ * ==========================================================
+ * ADMIN ROUTE
+ * ==========================================================
+ *
+ * Firebase:
+ *   Authentication / identity only
+ *
+ * Supabase:
+ *   Application role
+ *
+ * Security:
+ *   Frontend role check controls navigation/UX.
+ *   Supabase RLS/backend policies must enforce the actual
+ *   administrative permissions.
+ *
+ */
+
 
 export function AdminRoute() {
+
   const {
     user,
     loading: authLoading,
   } = useAuth();
+
 
   const location =
     useLocation();
@@ -38,141 +55,221 @@ export function AdminRoute() {
   const [
     checkingRole,
     setCheckingRole,
-  ] = useState(true);
+  ] =
+    useState(true);
 
 
   const [
     isAdmin,
     setIsAdmin,
-  ] = useState(false);
+  ] =
+    useState(false);
 
 
   const [
     roleError,
     setRoleError,
-  ] = useState("");
+  ] =
+    useState("");
 
 
-  useEffect(() => {
-    let mounted = true;
+  useEffect(
+    () => {
+
+      let mounted =
+        true;
 
 
-    async function checkAdminRole() {
-      if (
-        authLoading
-      ) {
-        return;
-      }
+      async function checkAdminRole() {
+
+        /*
+         * ----------------------------------------------------
+         * WAIT FOR FIREBASE AUTH
+         * ----------------------------------------------------
+         */
+
+        if (
+          authLoading
+        ) {
+          return;
+        }
 
 
-      if (!user) {
-        if (mounted) {
+        /*
+         * ----------------------------------------------------
+         * NOT LOGGED IN
+         * ----------------------------------------------------
+         */
+
+        if (
+          !user
+        ) {
+
+          if (
+            mounted
+          ) {
+
+            setCheckingRole(
+              false,
+            );
+
+            setIsAdmin(
+              false,
+            );
+
+            setRoleError(
+              "",
+            );
+          }
+
+          return;
+        }
+
+
+        /*
+         * ----------------------------------------------------
+         * LOAD PROFILE FROM SUPABASE
+         * ----------------------------------------------------
+         */
+
+        try {
+
           setCheckingRole(
-            false,
+            true,
+          );
+
+          setRoleError(
+            "",
           );
 
           setIsAdmin(
             false,
           );
-        }
-
-        return;
-      }
 
 
-      try {
-        setCheckingRole(
-          true,
-        );
-
-        setRoleError("");
-
-
-        const snapshot =
-          await getDoc(
-            doc(
-              db,
-              "users",
+          const profile =
+            await getCustomerById(
               user.uid,
-            ),
-          );
+            );
 
 
-        if (!mounted) {
-          return;
-        }
+          if (
+            !mounted
+          ) {
+            return;
+          }
 
 
-        if (!snapshot.exists()) {
+          /*
+           * Supabase is the source of truth for the application
+           * role.
+           */
+
+          const admin =
+            profile?.role ===
+            "admin";
+
+
           setIsAdmin(
-            false,
+            admin,
           );
 
-          setRoleError(
-            "Your account does not have an admin profile.",
+
+          if (
+            !admin
+          ) {
+
+            setRoleError(
+              profile
+                ? "Your account does not have admin permissions."
+                : "Your account profile was not found.",
+            );
+          }
+
+        } catch (
+          error
+        ) {
+
+          console.error(
+            "Failed to verify admin role from Supabase:",
+            error,
           );
 
-          return;
-        }
+
+          if (
+            mounted
+          ) {
+
+            setIsAdmin(
+              false,
+            );
 
 
-        const data =
-          snapshot.data();
+            setRoleError(
+              error instanceof Error
+                ? error.message
+                : "Unable to verify your admin permissions.",
+            );
+          }
 
+        } finally {
 
-        setIsAdmin(
-          data.role ===
-            "admin",
-        );
-      } catch (error) {
-        console.error(
-          "Failed to check admin role:",
-          error,
-        );
+          if (
+            mounted
+          ) {
 
-
-        if (mounted) {
-          setIsAdmin(
-            false,
-          );
-
-          setRoleError(
-            "Unable to verify your admin permissions.",
-          );
-        }
-      } finally {
-        if (mounted) {
-          setCheckingRole(
-            false,
-          );
+            setCheckingRole(
+              false,
+            );
+          }
         }
       }
-    }
 
 
-    void checkAdminRole();
+      void checkAdminRole();
 
 
-    return () => {
-      mounted = false;
-    };
-  }, [
-    user,
-    authLoading,
-  ]);
+      return () => {
 
+        mounted =
+          false;
+      };
+
+    },
+    [
+      user,
+      authLoading,
+    ],
+  );
+
+
+  /*
+   * ========================================================
+   * LOADING
+   * ========================================================
+   */
 
   if (
     authLoading ||
     checkingRole
   ) {
+
     return (
       <LoadingSpinner />
     );
   }
 
 
-  if (!user) {
+  /*
+   * ========================================================
+   * LOGIN REQUIRED
+   * ========================================================
+   */
+
+  if (
+    !user
+  ) {
+
     return (
       <Navigate
         to="/login"
@@ -186,7 +283,16 @@ export function AdminRoute() {
   }
 
 
-  if (!isAdmin) {
+  /*
+   * ========================================================
+   * ADMIN REQUIRED
+   * ========================================================
+   */
+
+  if (
+    !isAdmin
+  ) {
+
     console.warn(
       roleError ||
         "Non-admin user attempted to access admin route.",
@@ -201,6 +307,12 @@ export function AdminRoute() {
     );
   }
 
+
+  /*
+   * ========================================================
+   * AUTHORIZED
+   * ========================================================
+   */
 
   return (
     <Outlet />

@@ -18,12 +18,8 @@ import {
 
 import {
   deleteProduct,
+  subscribeToProducts,
 } from "../../../services/product.service";
-
-import {
-  subscribeToCollection,
-  type RealtimeDocument,
-} from "../../../services/realtime.service";
 
 import type {
   Product,
@@ -37,14 +33,13 @@ import type {
  *
  * Realtime source:
  *
- *     Firestore → products
+ *     Supabase → products
  *
  * Any create/update/delete is reflected in this page
  * automatically without a refresh.
  */
 
 export default function ProductManager() {
-
   const [
     products,
     setProducts,
@@ -90,171 +85,54 @@ export default function ProductManager() {
    */
 
   useEffect(() => {
+    setLoading(true);
 
-    setLoading(
-      true,
-    );
-
-    setError(
-      "",
-    );
+    setError("");
 
 
     const unsubscribe =
-      subscribeToCollection<Partial<Product>>(
-        "products",
-
+      subscribeToProducts(
         (
-          items: RealtimeDocument<Partial<Product>>[],
+          items,
         ) => {
-
           const normalizedProducts =
             items.map(
               (
                 item,
-              ): Product => {
+              ) => ({
+                ...item,
+                active:
+                  item.active ??
+                  item.available,
 
-                const raw =
-                  item.data;
+                available:
+                  item.available ??
+                  item.active ??
+                  true,
 
-
-                const image =
-                  typeof raw.image ===
-                  "string"
-                    ? raw.image
-                    : undefined;
-
-
-                const imageUrl =
-                  typeof raw.imageUrl ===
-                  "string"
-                    ? raw.imageUrl
-                    : image;
-
-
-                const images =
-                  Array.isArray(
-                    raw.images,
-                  )
-                    ? raw.images.filter(
-                        (
-                          value,
-                        ): value is string =>
-                          typeof value ===
-                          "string" &&
-                          value.trim().length >
-                            0,
-                      )
-                    : [];
-
-
-                const primaryImage =
-                  imageUrl ||
-                  image ||
-                  images[0];
-
-
-                return {
-                  id:
-                    item.id,
-
-                  name:
-                    raw.name ??
-                    "Unnamed product",
-
-                  description:
-                    raw.description ??
-                    "",
-
-                  category:
-                    raw.category ??
-                    "Electronics",
-
-                  price:
-                    typeof raw.price ===
-                    "number"
-                      ? raw.price
-                      : 0,
-
-                  currency:
-                    raw.currency ??
-                    "INR",
-
-                  stock:
-                    typeof raw.stock ===
-                    "number"
-                      ? raw.stock
-                      : 0,
-
-                  available:
-                    raw.available ??
-                    raw.active ??
-                    true,
-
-                  active:
-                    raw.active,
-
-                  featured:
-                    raw.featured,
-
-                  bestSeller:
-                    raw.bestSeller,
-
-                  trending:
-                    raw.trending,
-
-                  image:
-                    primaryImage,
-
-                  imageUrl:
-                    primaryImage,
-
-                  images:
-                    primaryImage
-                      ? [
-                          primaryImage,
-                        ]
-                      : [],
-
-                  slug:
-                    raw.slug,
-
-                  sku:
-                    raw.sku,
-
-                  shortDescription:
-                    raw.shortDescription,
-
-                  compareAtPrice:
-                    raw.compareAtPrice,
-
-                  specifications:
-                    raw.specifications,
-
-                  createdAt:
-                    raw.createdAt,
-
-                  updatedAt:
-                    raw.updatedAt,
-                };
-              },
+                images:
+                  item.images ??
+                  (
+                    item.imageUrl
+                      ? [item.imageUrl]
+                      : item.image
+                        ? [item.image]
+                        : []
+                  ),
+              }),
             );
 
-
-          /*
-           * Newest records first when createdAt exists.
-           */
 
           normalizedProducts.sort(
             (
               first,
               second,
             ) => {
-
               const firstTime =
                 toTimestamp(
                   first.createdAt,
                 );
+
 
               const secondTime =
                 toTimestamp(
@@ -285,36 +163,33 @@ export default function ProductManager() {
           );
         },
 
-        {
-          onError: (
+
+        (
+          listenerError,
+        ) => {
+          console.error(
+            "Supabase realtime products listener failed:",
             listenerError,
-          ) => {
-
-            console.error(
-              "Realtime products listener failed:",
-              listenerError,
-            );
+          );
 
 
-            setError(
-              "Unable to connect to the realtime product database.",
-            );
+          setError(
+            listenerError instanceof Error
+              ? listenerError.message
+              : "Unable to connect to the realtime product database.",
+          );
 
 
-            setLoading(
-              false,
-            );
-          },
+          setLoading(
+            false,
+          );
         },
       );
 
 
     return () => {
-
       unsubscribe();
-
     };
-
   }, []);
 
 
@@ -327,7 +202,6 @@ export default function ProductManager() {
   const categories =
     useMemo(
       () => {
-
         const values =
           products
             .map(
@@ -369,7 +243,6 @@ export default function ProductManager() {
   const filteredProducts =
     useMemo(
       () => {
-
         const query =
           search
             .trim()
@@ -380,7 +253,6 @@ export default function ProductManager() {
           (
             product,
           ) => {
-
             const matchesSearch =
               query === "" ||
               product.name
@@ -404,8 +276,7 @@ export default function ProductManager() {
 
 
             const matchesCategory =
-              category ===
-                "All" ||
+              category === "All" ||
               product.category ===
                 category;
 
@@ -434,7 +305,6 @@ export default function ProductManager() {
   async function handleDelete(
     product: Product,
   ) {
-
     const confirmed =
       window.confirm(
         `Delete "${product.name}"?\n\nThis action cannot be undone.`,
@@ -447,30 +317,27 @@ export default function ProductManager() {
 
 
     try {
-
       setDeletingId(
         product.id,
       );
 
 
-      setError(
-        "",
-      );
+      setError("");
 
 
       /*
-       * Do NOT manually remove the product from local state.
+       * Do not manually remove the product from local state.
        *
-       * Firestore onSnapshot() will deliver the delete event
-       * and update the list for us.
+       * Supabase Realtime will deliver the DELETE event and
+       * update the list automatically.
        */
 
       await deleteProduct(
         product.id,
       );
-
-    } catch (deleteError) {
-
+    } catch (
+      deleteError
+    ) {
       console.error(
         "Failed to delete product:",
         deleteError,
@@ -482,9 +349,7 @@ export default function ProductManager() {
           ? deleteError.message
           : "Unable to delete this product.",
       );
-
     } finally {
-
       setDeletingId(
         null,
       );
@@ -546,15 +411,16 @@ export default function ProductManager() {
           REALTIME STATUS
       ===================================================== */}
 
-      {!error && !loading && (
-        <div className="flex items-center gap-2 rounded-2xl border border-green-200 bg-green-50 px-4 py-3 text-sm font-semibold text-green-700">
+      {!error &&
+        !loading && (
+          <div className="flex items-center gap-2 rounded-2xl border border-green-200 bg-green-50 px-4 py-3 text-sm font-semibold text-green-700">
 
-          <span className="h-2.5 w-2.5 rounded-full bg-green-500" />
+            <span className="h-2.5 w-2.5 rounded-full bg-green-500" />
 
-          Live product synchronization active
+            Live product synchronization active
 
-        </div>
-      )}
+          </div>
+        )}
 
 
       {/* ====================================================
@@ -628,7 +494,6 @@ export default function ProductManager() {
               (
                 item,
               ) => (
-
                 <option
                   key={
                     item
@@ -637,9 +502,10 @@ export default function ProductManager() {
                     item
                   }
                 >
-                  {item}
+                  {
+                    item
+                  }
                 </option>
-
               ),
             )}
 
@@ -715,15 +581,11 @@ export default function ProductManager() {
           <button
             type="button"
             onClick={() => {
-
-              setSearch(
-                "",
-              );
+              setSearch("");
 
               setCategory(
                 "All",
               );
-
             }}
             className="mt-6 rounded-full bg-neutral-950 px-6 py-3 text-sm font-bold text-white hover:bg-[#D4AF37]"
           >
@@ -788,8 +650,8 @@ export default function ProductManager() {
                   (
                     product,
                   ) => {
-
                     const image =
+                      product.thumbnailImage ||
                       product.imageUrl ||
                       product.image ||
                       product.images?.[0];
@@ -899,7 +761,8 @@ export default function ProductManager() {
 
                           <span
                             className={
-                              product.stock <= 5
+                              product.stock <=
+                              5
                                 ? "font-bold text-red-600"
                                 : "font-semibold text-neutral-700"
                             }
@@ -927,11 +790,9 @@ export default function ProductManager() {
                               " ",
                             )}
                           >
-
                             {active
                               ? "Active"
                               : "Inactive"}
-
                           </span>
 
                         </td>
@@ -1079,7 +940,8 @@ function toTimestamp(
             value as {
               seconds?: unknown;
             }
-          ).seconds ?? 0,
+          ).seconds ??
+            0,
         );
 
 

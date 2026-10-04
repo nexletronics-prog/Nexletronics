@@ -1,24 +1,13 @@
 /*
  * ==========================================================
- * FIREBASE COMPATIBILITY EXPORT
+ * FIREBASE EXPORTS
  * ==========================================================
  *
- * IMPORTANT:
- *
- * This file MUST NOT call initializeApp().
- *
- * The Firebase app is initialized ONLY in:
- *
- *     src/firebase/config.ts
- *
- * This file simply re-exports the shared Firebase services.
+ * Firebase is authentication / identity only.
  *
  */
-
 
 export {
   firebaseApp,
   auth,
-  db,
-  storage,
 } from "./firebase/config";

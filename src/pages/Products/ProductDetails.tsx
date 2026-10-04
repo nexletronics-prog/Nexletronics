@@ -21,14 +21,6 @@ import {
   useParams,
 } from "react-router-dom";
 
-import {
-  addDoc,
-  collection,
-  getDocs,
-  query,
-  serverTimestamp,
-  where,
-} from "firebase/firestore";
 
 import LoadingSpinner from "../../components/common/LoadingSpinner";
 
@@ -41,8 +33,8 @@ import type {
 } from "../../types/product";
 
 import {
-  db,
-} from "../../firebase/config";
+  supabase,
+} from "../../lib/supabase";
 
 import {
   useAuth,
@@ -277,6 +269,25 @@ function getTimestampMilliseconds(
   ) {
 
     return value.getTime();
+  }
+
+
+  if (
+    typeof value ===
+      "string"
+  ) {
+
+    const milliseconds =
+      Date.parse(
+        value,
+      );
+
+
+    return Number.isFinite(
+      milliseconds,
+    )
+      ? milliseconds
+      : 0;
   }
 
 
@@ -715,24 +726,32 @@ export default function ProductDetails() {
         );
 
 
-        const reviewsQuery =
-          query(
-            collection(
-              db,
-              "productReviews",
-            ),
-            where(
-              "productId",
-              "==",
-              productId,
-            ),
+        const {
+          data,
+          error,
+        } = await supabase
+          .from(
+            "product_reviews",
+          )
+          .select(
+            "id, product_id, firebase_uid, user_name, rating, comment, created_at, updated_at",
+          )
+          .eq(
+            "product_id",
+            productId,
+          )
+          .order(
+            "created_at",
+            {
+              ascending: false,
+            },
           );
 
 
-        const snapshot =
-          await getDocs(
-            reviewsQuery,
-          );
+        if (error) {
+
+          throw error;
+        }
 
 
         if (
@@ -745,17 +764,13 @@ export default function ProductDetails() {
 
         const loadedReviews:
           ProductReview[] =
-          snapshot.docs.map(
+          (data ?? []).map(
             (
-              document,
+              review,
             ) => {
 
-              const data =
-                document.data();
-
-
               const rawRating =
-                data.rating;
+                review.rating;
 
 
               const rating =
@@ -778,39 +793,41 @@ export default function ProductDetails() {
 
               return {
                 id:
-                  document.id,
+                  String(
+                    review.id,
+                  ),
 
                 productId:
-                  typeof data.productId ===
+                  typeof review.product_id ===
                     "string"
-                    ? data.productId
+                    ? review.product_id
                     : productId,
 
                 userId:
-                  typeof data.userId ===
+                  typeof review.firebase_uid ===
                     "string"
-                    ? data.userId
+                    ? review.firebase_uid
                     : "",
 
                 userName:
-                  typeof data.userName ===
+                  typeof review.user_name ===
                     "string"
-                    ? data.userName
+                    ? review.user_name
                     : "Customer",
 
                 rating,
 
                 comment:
-                  typeof data.comment ===
+                  typeof review.comment ===
                     "string"
-                    ? data.comment
+                    ? review.comment
                     : "",
 
                 createdAt:
-                  data.createdAt,
+                  review.created_at,
 
                 updatedAt:
-                  data.updatedAt,
+                  review.updated_at,
               };
             },
           );
@@ -1340,57 +1357,97 @@ export default function ProductDetails() {
         "Customer";
 
 
-      const document =
-        await addDoc(
-          collection(
-            db,
-            "productReviews",
-          ),
-          {
-            productId:
-              currentProduct.id,
+      const {
+        data,
+        error,
+      } = await supabase
+        .from(
+          "product_reviews",
+        )
+        .insert({
+          product_id:
+            currentProduct.id,
 
-            userId:
-              user.uid,
+          firebase_uid:
+            user.uid,
 
+          user_name:
             userName,
 
-            rating:
-              reviewRating,
+          rating:
+            reviewRating,
 
-            comment:
-              cleanComment,
+          comment:
+            cleanComment,
+        })
+        .select(
+          "id, product_id, firebase_uid, user_name, rating, comment, created_at, updated_at",
+        )
+        .single();
 
-            createdAt:
-              serverTimestamp(),
 
-            updatedAt:
-              serverTimestamp(),
-          },
-        );
+      if (error) {
+
+        if (
+          error.code ===
+          "23505"
+        ) {
+
+          throw new Error(
+            "You have already reviewed this product.",
+          );
+        }
+
+
+        throw error;
+      }
 
 
       const newReview:
         ProductReview = {
         id:
-          document.id,
+          String(
+            data.id,
+          ),
 
         productId:
-          currentProduct.id,
+          typeof data.product_id ===
+            "string"
+            ? data.product_id
+            : currentProduct.id,
 
         userId:
-          user.uid,
+          typeof data.firebase_uid ===
+            "string"
+            ? data.firebase_uid
+            : user.uid,
 
-        userName,
+        userName:
+          typeof data.user_name ===
+            "string"
+            ? data.user_name
+            : userName,
 
         rating:
-          reviewRating,
+          typeof data.rating ===
+              "number" &&
+            Number.isFinite(
+              data.rating,
+            )
+            ? data.rating
+            : reviewRating,
 
         comment:
-          cleanComment,
+          typeof data.comment ===
+            "string"
+            ? data.comment
+            : cleanComment,
 
         createdAt:
-          new Date(),
+          data.created_at,
+
+        updatedAt:
+          data.updated_at,
       };
 
 

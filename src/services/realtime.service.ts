@@ -1,33 +1,351 @@
-import {
-  collection,
-  doc,
-  onSnapshot,
-  orderBy,
-  query,
-  type CollectionReference,
-  type DocumentData,
-  type DocumentReference,
-  type QueryConstraint,
-  type Unsubscribe,
-} from "firebase/firestore";
+import { supabase } from "../lib/supabase";
 
 import {
-  db,
-} from "../firebase/config";
+  subscribeToOrders,
+} from "./order.service";
+
+import { getCustomers } from "./customer.service";
+
+import {
+  subscribeContactMessages,
+} from "./contact.service";
+
+import {
+  getAllPrintingOrders,
+} from "./printing.service";
+
+import type { PrintingOrder } from "../types/printing";
 
 
 /*
  * ==========================================================
  * REALTIME DOCUMENT
  * ==========================================================
+ *
+ * Compatibility shape used by existing admin pages.
+ *
+ * Firebase Authentication is used only for identity.
+ * Application data and realtime updates come from Supabase.
  */
 
 export interface RealtimeDocument<
-  T = DocumentData,
+  T = Record<string, unknown>,
 > {
   id: string;
-
   data: T;
+}
+
+
+type RealtimeErrorHandler = (
+  error: Error,
+) => void;
+
+
+/*
+ * ==========================================================
+ * TABLE ALIASES
+ * ==========================================================
+ */
+
+const TABLE_ALIASES: Record<string, string> = {
+  users: "profiles",
+  threeDPrintOrders: "printing_orders",
+};
+
+
+function resolveTableName(
+  collectionName: string,
+): string {
+  return (
+    TABLE_ALIASES[collectionName] ??
+    collectionName
+  );
+}
+
+
+/*
+ * ==========================================================
+ * ERROR NORMALIZER
+ * ==========================================================
+ */
+
+function normalizeError(
+  error: unknown,
+  fallback: string,
+): Error {
+  if (error instanceof Error) {
+    return error;
+  }
+
+  if (
+    error &&
+    typeof error === "object" &&
+    "message" in error &&
+    typeof (error as { message?: unknown }).message ===
+      "string"
+  ) {
+    return new Error(
+      (error as { message: string }).message,
+    );
+  }
+
+  return new Error(fallback);
+}
+
+
+/*
+ * ==========================================================
+ * GENERIC ROW MAPPER
+ * ==========================================================
+ */
+
+function mapSupabaseRow<T>(
+  row: Record<string, unknown>,
+): T {
+  return row as T;
+}
+
+
+/*
+ * ==========================================================
+ * SPECIALIZED REALTIME COLLECTIONS
+ * ==========================================================
+ */
+
+function subscribeSpecialCollection<T>(
+  collectionName: string,
+  onChange: (
+    items: RealtimeDocument<T>[],
+  ) => void,
+  onError?: RealtimeErrorHandler,
+): (() => void) | null {
+  switch (collectionName) {
+    case "orders": {
+      return subscribeToOrders(
+        (orders) => {
+          onChange(
+            orders.map((order) => ({
+              id: order.id,
+              data: order as T,
+            })),
+          );
+        },
+        onError,
+      );
+    }
+
+    case "contacts": {
+      return subscribeContactMessages(
+        (contacts) => {
+          onChange(
+            contacts.map((contact) => ({
+              id: contact.id,
+              data: contact as unknown as T,
+            })),
+          );
+        },
+        (error: unknown) => {
+          onError?.(
+            normalizeError(
+              error,
+              "Unable to load contact messages.",
+            ),
+          );
+        },
+      );
+    }
+
+    case "users": {
+      let active = true;
+
+      const load = async () => {
+        try {
+          const customers = await getCustomers();
+
+          if (!active) {
+            return;
+          }
+
+          onChange(
+            customers.map((customer) => ({
+              id: customer.uid,
+
+              data: {
+                uid: customer.uid,
+
+                firebase_uid:
+                  customer.uid,
+
+                name:
+                  customer.name,
+
+                email:
+                  customer.email,
+
+                phone:
+                  customer.phone,
+
+                photoURL:
+                  customer.photoURL,
+
+                role:
+                  customer.role,
+
+                createdAt:
+                  customer.createdAt,
+
+                updatedAt:
+                  customer.updatedAt,
+              } as T,
+            })),
+          );
+        } catch (error: unknown) {
+          if (active) {
+            onError?.(
+              normalizeError(
+                error,
+                "Unable to load customers.",
+              ),
+            );
+          }
+        }
+      };
+
+      void load();
+
+      const channel = supabase
+        .channel(
+          `realtime-profiles-${Date.now()}`,
+        )
+        .on(
+          "postgres_changes",
+          {
+            event: "*",
+
+            schema: "public",
+
+            table: "profiles",
+          },
+          () => {
+            void load();
+          },
+        )
+        .subscribe(
+          (
+            status,
+            error: unknown,
+          ) => {
+            if (!active) {
+              return;
+            }
+
+            if (
+              status === "CHANNEL_ERROR" ||
+              status === "TIMED_OUT"
+            ) {
+              onError?.(
+                normalizeError(
+                  error,
+                  "Realtime customer connection failed.",
+                ),
+              );
+            }
+          },
+        );
+
+      return () => {
+        active = false;
+
+        void supabase.removeChannel(
+          channel,
+        );
+      };
+    }
+
+    case "threeDPrintOrders": {
+      let active = true;
+
+      const load = async () => {
+        try {
+          const orders: PrintingOrder[] =
+            await getAllPrintingOrders();
+
+          if (!active) {
+            return;
+          }
+
+          onChange(
+            orders.map((order) => ({
+              id: order.id,
+              data: order as T,
+            })),
+          );
+        } catch (error: unknown) {
+          if (active) {
+            onError?.(
+              normalizeError(
+                error,
+                "Unable to load 3D printing orders.",
+              ),
+            );
+          }
+        }
+      };
+
+      void load();
+
+      const channel = supabase
+        .channel(
+          `realtime-printing-orders-${Date.now()}`,
+        )
+        .on(
+          "postgres_changes",
+          {
+            event: "*",
+
+            schema: "public",
+
+            table: "printing_orders",
+          },
+          () => {
+            void load();
+          },
+        )
+        .subscribe(
+          (
+            status,
+            error: unknown,
+          ) => {
+            if (!active) {
+              return;
+            }
+
+            if (
+              status === "CHANNEL_ERROR" ||
+              status === "TIMED_OUT"
+            ) {
+              onError?.(
+                normalizeError(
+                  error,
+                  "Realtime 3D printing connection failed.",
+                ),
+              );
+            }
+          },
+        );
+
+      return () => {
+        active = false;
+
+        void supabase.removeChannel(
+          channel,
+        );
+      };
+    }
+
+    default:
+      return null;
+  }
 }
 
 
@@ -35,20 +353,10 @@ export interface RealtimeDocument<
  * ==========================================================
  * REALTIME COLLECTION
  * ==========================================================
- *
- * Keeps a Firestore collection synchronized with the UI.
- *
- * Automatically receives:
- *
- *   create
- *   update
- *   delete
- *
- * events.
  */
 
 export function subscribeToCollection<
-  T = DocumentData,
+  T = Record<string, unknown>,
 >(
   collectionName: string,
 
@@ -57,72 +365,170 @@ export function subscribeToCollection<
   ) => void,
 
   options?: {
-    constraints?: QueryConstraint[];
+    constraints?: unknown[];
 
-    onError?: (
-      error: Error,
-    ) => void;
+    onError?: RealtimeErrorHandler;
   },
-): Unsubscribe {
-
-  const collectionRef =
-    collection(
-      db,
+): () => void {
+  const specialized =
+    subscribeSpecialCollection<T>(
       collectionName,
-    ) as CollectionReference;
+
+      onChange,
+
+      options?.onError,
+    );
+
+  if (specialized) {
+    return specialized;
+  }
+
+  const tableName =
+    resolveTableName(
+      collectionName,
+    );
+
+  let active =
+    true;
 
 
-  const firestoreQuery =
-    options?.constraints &&
-    options.constraints.length > 0
-      ? query(
-          collectionRef,
-          ...options.constraints,
-        )
-      : collectionRef;
+  const load =
+    async () => {
+      try {
+        const {
+          data,
+          error,
+        } =
+          await supabase
+            .from(
+              tableName,
+            )
+            .select(
+              "*",
+            );
 
+        if (error) {
+          throw error;
+        }
 
-  return onSnapshot(
+        if (!active) {
+          return;
+        }
 
-    firestoreQuery,
-
-    (snapshot) => {
-
-      const items =
-        snapshot.docs.map(
+        const items =
           (
-            document,
-          ) => {
-
-            return {
+            data ??
+            []
+          ).map(
+            (row) => ({
               id:
-                document.id,
+                typeof row.id ===
+                  "string"
+                  ? row.id
+                  : String(
+                      row.id ??
+                        "",
+                    ),
 
               data:
-                document.data() as T,
-            };
-          },
+                mapSupabaseRow<T>(
+                  row as Record<
+                    string,
+                    unknown
+                  >,
+                ),
+            }),
+          );
+
+        onChange(
+          items,
+        );
+      } catch (
+        error: unknown
+      ) {
+        if (!active) {
+          return;
+        }
+
+        const normalized =
+          normalizeError(
+            error,
+
+            `Unable to load ${collectionName}.`,
+          );
+
+        console.error(
+          `Supabase realtime collection failed for "${collectionName}":`,
+          normalized,
         );
 
+        options?.onError?.(
+          normalized,
+        );
+      }
+    };
 
-      onChange(
-        items,
+
+  void load();
+
+
+  const channel =
+    supabase
+      .channel(
+        `realtime-${tableName}-${Date.now()}`,
+      )
+      .on(
+        "postgres_changes",
+
+        {
+          event:
+            "*",
+
+          schema:
+            "public",
+
+          table:
+            tableName,
+        },
+
+        () => {
+          void load();
+        },
+      )
+      .subscribe(
+        (
+          status,
+          error: unknown,
+        ) => {
+          if (!active) {
+            return;
+          }
+
+          if (
+            status ===
+              "CHANNEL_ERROR" ||
+            status ===
+              "TIMED_OUT"
+          ) {
+            options?.onError?.(
+              normalizeError(
+                error,
+
+                `Realtime ${collectionName} connection failed.`,
+              ),
+            );
+          }
+        },
       );
-    },
-
-    (error) => {
-
-      console.error(
-        `Realtime listener failed for collection "${collectionName}":`,
-        error,
-      );
 
 
-      options?.onError?.(
-        error,
-      );
-    },
-  );
+  return () => {
+    active = false;
+
+    void supabase.removeChannel(
+      channel,
+    );
+  };
 }
 
 
@@ -130,12 +536,10 @@ export function subscribeToCollection<
  * ==========================================================
  * ORDERED REALTIME COLLECTION
  * ==========================================================
- *
- * Newest records first.
  */
 
 export function subscribeToOrderedCollection<
-  T = DocumentData,
+  T = Record<string, unknown>,
 >(
   collectionName: string,
 
@@ -145,24 +549,98 @@ export function subscribeToOrderedCollection<
     items: RealtimeDocument<T>[],
   ) => void,
 
-  onError?: (
-    error: Error,
-  ) => void,
-): Unsubscribe {
+  onError?: RealtimeErrorHandler,
+): () => void {
+  const handleChange = (
+    items: RealtimeDocument<T>[],
+  ) => {
+    const sorted =
+      [
+        ...items,
+      ].sort(
+        (
+          first,
+          second,
+        ) => {
+          const firstValue =
+            (
+              first.data as Record<
+                string,
+                unknown
+              >
+            )[orderField];
+
+          const secondValue =
+            (
+              second.data as Record<
+                string,
+                unknown
+              >
+            )[orderField];
+
+
+          const firstTime =
+            firstValue instanceof
+              Date
+
+              ? firstValue.getTime()
+
+              : typeof firstValue ===
+                  "string"
+
+                ? Date.parse(
+                    firstValue,
+                  )
+
+                : typeof firstValue ===
+                    "number"
+
+                  ? firstValue
+
+                  : 0;
+
+
+          const secondTime =
+            secondValue instanceof
+              Date
+
+              ? secondValue.getTime()
+
+              : typeof secondValue ===
+                  "string"
+
+                ? Date.parse(
+                    secondValue,
+                  )
+
+                : typeof secondValue ===
+                    "number"
+
+                  ? secondValue
+
+                  : 0;
+
+
+          return (
+            secondTime -
+            firstTime
+          );
+        },
+      );
+
+
+    onChange(
+      sorted,
+    );
+  };
+
 
   return subscribeToCollection<T>(
     collectionName,
 
-    onChange,
+    handleChange,
 
     {
-      constraints: [
-        orderBy(
-          orderField,
-          "desc",
-        ),
-      ],
-
       onError,
     },
   );
@@ -173,17 +651,10 @@ export function subscribeToOrderedCollection<
  * ==========================================================
  * REALTIME DOCUMENT
  * ==========================================================
- *
- * Useful for individual Firestore documents such as:
- *
- *   siteSettings/global
- *   siteSettings/homepage
- *   products/<id>
- *   orders/<id>
  */
 
 export function subscribeToDocument<
-  T = DocumentData,
+  T = Record<string, unknown>,
 >(
   collectionName: string,
 
@@ -193,51 +664,137 @@ export function subscribeToDocument<
     value: T | null,
   ) => void,
 
-  onError?: (
-    error: Error,
-  ) => void,
-): Unsubscribe {
+  onError?: RealtimeErrorHandler,
+): () => void {
+  let active =
+    true;
 
-  const documentRef =
-    doc(
-      db,
+
+  const tableName =
+    resolveTableName(
       collectionName,
-      documentId,
-    ) as DocumentReference;
+    );
 
 
-  return onSnapshot(
+  const load =
+    async () => {
+      try {
+        const {
+          data,
+          error,
+        } =
+          await supabase
+            .from(
+              tableName,
+            )
+            .select(
+              "*",
+            )
+            .eq(
+              "id",
+              documentId,
+            )
+            .maybeSingle();
 
-    documentRef,
 
-    (snapshot) => {
+        if (error) {
+          throw error;
+        }
 
-      if (!snapshot.exists()) {
+
+        if (!active) {
+          return;
+        }
+
 
         onChange(
-          null,
+          data
+            ? (
+                data as T
+              )
+            : null,
         );
+      } catch (
+        error: unknown
+      ) {
+        if (!active) {
+          return;
+        }
 
-        return;
+
+        onError?.(
+          normalizeError(
+            error,
+
+            `Unable to load ${collectionName}/${documentId}.`,
+          ),
+        );
       }
+    };
 
 
-      onChange(
-        snapshot.data() as T,
+  void load();
+
+
+  const channel =
+    supabase
+      .channel(
+        `realtime-${tableName}-${documentId}-${Date.now()}`,
+      )
+      .on(
+        "postgres_changes",
+
+        {
+          event:
+            "*",
+
+          schema:
+            "public",
+
+          table:
+            tableName,
+
+          filter:
+            `id=eq.${documentId}`,
+        },
+
+        () => {
+          void load();
+        },
+      )
+      .subscribe(
+        (
+          status,
+          error: unknown,
+        ) => {
+          if (!active) {
+            return;
+          }
+
+
+          if (
+            status ===
+              "CHANNEL_ERROR" ||
+            status ===
+              "TIMED_OUT"
+          ) {
+            onError?.(
+              normalizeError(
+                error,
+
+                `Realtime ${collectionName}/${documentId} connection failed.`,
+              ),
+            );
+          }
+        },
       );
-    },
-
-    (error) => {
-
-      console.error(
-        `Realtime listener failed for document "${collectionName}/${documentId}":`,
-        error,
-      );
 
 
-      onError?.(
-        error,
-      );
-    },
-  );
+  return () => {
+    active = false;
+
+    void supabase.removeChannel(
+      channel,
+    );
+  };
 }
