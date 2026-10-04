@@ -26,6 +26,10 @@ import {
   updatePrintingOrder,
 } from "../../../services/printing.service";
 
+import {
+  openPrintingStlFile,
+} from "../../../services/printingDownload.service";
+
 import type {
   PrintingOrder,
   PrintingOrderStatus,
@@ -969,7 +973,7 @@ export default function PrintingDashboard() {
    * ========================================================
    */
 
-  function openStorageFile(
+  async function openStorageFile(
     order:
       PrintingOrder,
   ) {
@@ -997,12 +1001,18 @@ export default function PrintingDashboard() {
       directUrl
     ) {
 
-      window.open(
-        directUrl,
-        "_blank",
-        "noopener,noreferrer",
-      );
+      const popup =
+        window.open(
+          directUrl,
+          "_blank",
+          "noopener,noreferrer",
+        );
 
+      if (!popup) {
+        setError(
+          "Your browser blocked the STL window. Allow pop-ups for this site and try again.",
+        );
+      }
 
       return;
     }
@@ -1014,22 +1024,38 @@ export default function PrintingDashboard() {
       );
 
 
-    if (
-      storagePath
-    ) {
-
+    if (!storagePath) {
       setError(
-        "The request contains a private storage path. Open the request from the printing storage/admin workflow to download it securely.",
+        "No downloadable STL file is attached to this request.",
       );
-
-
       return;
     }
 
 
-    setError(
-      "No downloadable STL file is attached to this request.",
-    );
+    try {
+      setError(
+        "",
+      );
+
+      await openPrintingStlFile(
+        storagePath,
+      );
+
+    } catch (
+      downloadError
+    ) {
+
+      console.error(
+        "Failed to open printing STL file:",
+        downloadError,
+      );
+
+      setError(
+        downloadError instanceof Error
+          ? downloadError.message
+          : "Unable to open or download the STL file.",
+      );
+    }
   }
 
 

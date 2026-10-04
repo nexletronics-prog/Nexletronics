@@ -57,9 +57,35 @@ export async function getPrintingFileDownloadUrl(storagePath: string): Promise<s
 }
 
 export async function openPrintingStlFile(storagePath: string): Promise<void> {
-  const url = await getPrintingFileDownloadUrl(storagePath);
-  const popup = window.open(url, "_blank", "noopener,noreferrer");
+  if (!storagePath.trim()) {
+    throw new Error("STL storage path is missing.");
+  }
+
+  // Open the tab immediately from the admin click so Chrome does not
+  // treat the later navigation as a popup created asynchronously.
+  const popup = window.open(
+    "about:blank",
+    "_blank",
+    "noopener,noreferrer",
+  );
+
   if (!popup) {
-    throw new Error("Your browser blocked the STL download window.");
+    throw new Error(
+      "Your browser blocked the STL download window. Allow pop-ups for this site and try again.",
+    );
+  }
+
+  try {
+    popup.document.title = "Preparing STL...";
+  } catch {
+    // Some browsers expose the popup as a cross-origin WindowProxy.
+  }
+
+  try {
+    const url = await getPrintingFileDownloadUrl(storagePath);
+    popup.location.href = url;
+  } catch (error) {
+    popup.close();
+    throw error;
   }
 }
