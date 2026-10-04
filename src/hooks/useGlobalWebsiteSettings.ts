@@ -1,11 +1,12 @@
 import {
+  useCallback,
   useEffect,
   useState,
 } from "react";
 
 import {
   defaultGlobalWebsiteSettings,
-  subscribeToGlobalWebsiteSettings,
+  getGlobalWebsiteSettings,
 } from "../services/globalSettings.service";
 
 import type {
@@ -37,70 +38,182 @@ export function useGlobalWebsiteSettings() {
   );
 
 
-  useEffect(() => {
+  const loadSettings =
+    useCallback(
+      async () => {
 
-    let mounted = true;
+        try {
 
-
-    const unsubscribe =
-      subscribeToGlobalWebsiteSettings(
-
-        (nextSettings) => {
-
-          if (!mounted) {
-            return;
-          }
-
+          const nextSettings =
+            await getGlobalWebsiteSettings();
 
           setSettings(
             nextSettings,
           );
 
+          setError(
+            null,
+          );
+
+        } catch (
+          listenerError
+        ) {
+
+          const normalizedError =
+            listenerError instanceof Error
+              ? listenerError
+              : new Error(
+                  String(
+                    listenerError,
+                  ),
+                );
+
+          console.error(
+            "Global website settings load error:",
+            normalizedError,
+          );
+
+          setError(
+            normalizedError,
+          );
+
+        } finally {
 
           setLoading(
             false,
           );
+        }
+      },
+      [],
+    );
 
 
-          setError(
-            null,
-          );
-        },
+  useEffect(() => {
+
+    let mounted = true;
 
 
-        (listenerError) => {
+    const initialLoad =
+      async () => {
+
+        try {
+
+          const nextSettings =
+            await getGlobalWebsiteSettings();
 
           if (!mounted) {
             return;
           }
 
-
-          console.error(
-            "Global settings listener error:",
-            listenerError,
+          setSettings(
+            nextSettings,
           );
-
 
           setError(
-            listenerError,
+            null,
           );
 
+        } catch (
+          listenerError
+        ) {
 
-          setLoading(
-            false,
+          if (!mounted) {
+            return;
+          }
+
+          const normalizedError =
+            listenerError instanceof Error
+              ? listenerError
+              : new Error(
+                  String(
+                    listenerError,
+                  ),
+                );
+
+          console.error(
+            "Global website settings load error:",
+            normalizedError,
           );
-        },
-      );
+
+          setError(
+            normalizedError,
+          );
+
+        } finally {
+
+          if (mounted) {
+            setLoading(
+              false,
+            );
+          }
+        }
+      };
+
+
+    void initialLoad();
+
+
+    /*
+     * Refresh settings whenever the visitor returns
+     * to the tab/window. This replaces the previous
+     * WebSocket realtime dependency for this table.
+     */
+    const handleFocus =
+      () => {
+
+        if (!mounted) {
+          return;
+        }
+
+        void loadSettings();
+      };
+
+
+    const handleVisibilityChange =
+      () => {
+
+        if (
+          !mounted ||
+          document.visibilityState !==
+            "visible"
+        ) {
+          return;
+        }
+
+        void loadSettings();
+      };
+
+
+    window.addEventListener(
+      "focus",
+      handleFocus,
+    );
+
+
+    document.addEventListener(
+      "visibilitychange",
+      handleVisibilityChange,
+    );
 
 
     return () => {
 
       mounted = false;
 
-      unsubscribe();
+      window.removeEventListener(
+        "focus",
+        handleFocus,
+      );
+
+      document.removeEventListener(
+        "visibilitychange",
+        handleVisibilityChange,
+      );
     };
 
-  }, []);
+  }, [
+    loadSettings,
+  ]);
 
 
   return {
