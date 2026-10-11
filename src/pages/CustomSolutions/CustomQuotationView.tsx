@@ -434,88 +434,60 @@ export default function CustomQuotationView() {
 
   useEffect(
     () => {
+      let active = true;
 
-      if (
-        !projectId ||
-        !quotationId
-      ) {
+      const missingInformation =
+        !projectId || !quotationId;
 
-        setQuotation(
-          null,
-        );
+      queueMicrotask(() => {
+        if (!active) {
+          return;
+        }
 
+        if (missingInformation) {
+          setQuotation(null);
+          setError("Quotation information is missing.");
+          setLoading(false);
+          return;
+        }
 
-        setError(
-          "Quotation information is missing.",
-        );
+        setLoading(true);
+        setError("");
+      });
 
-
-        setLoading(
-          false,
-        );
-
-
-        return;
+      if (missingInformation) {
+        return () => {
+          active = false;
+        };
       }
-
-
-      setLoading(
-        true,
-      );
-
-
-      setError(
-        "",
-      );
-
 
       const unsubscribe =
         subscribeCustomQuotation(
-
           projectId,
-
           quotationId,
-
-          (
-            nextQuotation,
-          ) => {
-
-            setQuotation(
-              nextQuotation,
-            );
-
-
-            setLoading(
-              false,
-            );
-
-
-            if (
-              !nextQuotation
-            ) {
-
-              setError(
-                "Quotation not found.",
-              );
-
-            } else {
-
-              setError(
-                "",
-              );
+          (nextQuotation) => {
+            if (!active) {
+              return;
             }
 
-          },
+            setQuotation(nextQuotation);
+            setLoading(false);
 
-          (
-            listenerError,
-          ) => {
+            setError(
+              nextQuotation
+                ? ""
+                : "Quotation not found.",
+            );
+          },
+          (listenerError) => {
+            if (!active) {
+              return;
+            }
 
             console.error(
               "Customer quotation realtime listener failed:",
               listenerError,
             );
-
 
             setError(
               listenerError instanceof Error
@@ -523,25 +495,16 @@ export default function CustomQuotationView() {
                 : "Unable to load quotation.",
             );
 
-
-            setLoading(
-              false,
-            );
+            setLoading(false);
           },
         );
 
-
       return () => {
-
+        active = false;
         unsubscribe();
-
       };
-
     },
-    [
-      projectId,
-      quotationId,
-    ],
+    [projectId, quotationId],
   );
 
 

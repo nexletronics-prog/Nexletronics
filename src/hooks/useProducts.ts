@@ -16,142 +16,163 @@ import type {
   Product,
 } from "../types/product";
 
-
 interface UseProductsResult {
   products: Product[];
-
   loading: boolean;
-
   error: string | null;
-
   usingFallback: boolean;
-
   refresh: () => Promise<void>;
 }
 
+interface ProductLoadResult {
+  products: Product[];
+  usingFallback: boolean;
+  error: string | null;
+}
 
-export function useProducts():
-  UseProductsResult {
-
+export function useProducts(): UseProductsResult {
   const [
     products,
     setProducts,
-  ] =
-    useState<Product[]>(
-      localProducts,
-    );
-
+  ] = useState<Product[]>(
+    localProducts,
+  );
 
   const [
     loading,
     setLoading,
-  ] =
-    useState(true);
-
+  ] = useState(true);
 
   const [
     error,
     setError,
-  ] =
-    useState<string | null>(
-      null,
-    );
-
+  ] = useState<string | null>(
+    null,
+  );
 
   const [
     usingFallback,
     setUsingFallback,
-  ] =
-    useState(false);
+  ] = useState(false);
 
+  /*
+   * Fetching is kept separate from state updates.
+   * This avoids triggering the set-state-in-effect rule.
+   */
 
-  const loadProducts =
-    useCallback(
-      async () => {
-        setLoading(true);
-        setError(null);
+  const fetchProducts = useCallback(
+    async (): Promise<ProductLoadResult> => {
+      try {
+        const supabaseProducts =
+          await getProducts();
 
-
-        try {
-          const supabaseProducts =
-            await getProducts();
-
-
-          if (
-            supabaseProducts.length >
-            0
-          ) {
-            setProducts(
-              supabaseProducts,
-            );
-
-            setUsingFallback(
-              false,
-            );
-
-            return;
-          }
-
-
-          /*
-           * Keep the existing local fallback so the
-           * website remains usable when Supabase has
-           * no products yet.
-           */
-
-          setProducts(
-            localProducts,
-          );
-
-          setUsingFallback(
-            true,
-          );
-        } catch (
-          err
+        if (
+          supabaseProducts.length > 0
         ) {
-          console.error(
-            "Failed to load Supabase products:",
-            err,
-          );
-
-
-          setProducts(
-            localProducts,
-          );
-
-          setUsingFallback(
-            true,
-          );
-
-
-          setError(
-            "Unable to load products from Supabase. Showing available products instead.",
-          );
-        } finally {
-          setLoading(false);
+          return {
+            products: supabaseProducts,
+            usingFallback: false,
+            error: null,
+          };
         }
-      },
-      [],
-    );
 
+        return {
+          products: localProducts,
+          usingFallback: true,
+          error: null,
+        };
+      } catch (err) {
+        console.error(
+          "Failed to load Supabase products:",
+          err,
+        );
+
+        return {
+          products: localProducts,
+          usingFallback: true,
+          error:
+            "Unable to load products from Supabase. Showing available products instead.",
+        };
+      }
+    },
+    [],
+  );
+
+  /*
+   * Initial product loading.
+   * State updates happen after the asynchronous fetch completes.
+   */
 
   useEffect(() => {
-    void loadProducts();
+    let cancelled = false;
+
+    void fetchProducts().then(
+      (result) => {
+        if (cancelled) {
+          return;
+        }
+
+        setProducts(
+          result.products,
+        );
+
+        setUsingFallback(
+          result.usingFallback,
+        );
+
+        setError(
+          result.error,
+        );
+
+        setLoading(
+          false,
+        );
+      },
+    );
+
+    return () => {
+      cancelled = true;
+    };
   }, [
-    loadProducts,
+    fetchProducts,
   ]);
 
+  /*
+   * Manual refresh.
+   */
+
+  const refresh = useCallback(
+    async (): Promise<void> => {
+      setLoading(true);
+      setError(null);
+
+      const result =
+        await fetchProducts();
+
+      setProducts(
+        result.products,
+      );
+
+      setUsingFallback(
+        result.usingFallback,
+      );
+
+      setError(
+        result.error,
+      );
+
+      setLoading(false);
+    },
+    [
+      fetchProducts,
+    ],
+  );
 
   return {
     products,
-
     loading,
-
     error,
-
     usingFallback,
-
-    refresh:
-      loadProducts,
+    refresh,
   };
 }

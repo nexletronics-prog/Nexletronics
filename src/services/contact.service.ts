@@ -978,6 +978,7 @@ export async function saveContactReply(
 
     throw new Error(
       "EmailJS could not send the email. Check your EmailJS service, template and account settings.",
+      { cause: error },
     );
   }
 
@@ -1222,6 +1223,7 @@ export async function sendCustomerEmail(
         error,
         "Unable to send customer email.",
       ),
+      { cause: error },
     );
   }
 

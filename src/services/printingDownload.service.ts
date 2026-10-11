@@ -52,6 +52,7 @@ async function getFirebaseIdToken(): Promise<string> {
 
     throw new Error(
       "Unable to verify your administrator session. Please refresh the page and try again.",
+      { cause: error },
     );
   }
 }
@@ -105,19 +106,18 @@ export async function getPrintingFileDownloadUrl(
 
     throw new Error(
       "Unable to contact the secure STL download service.",
+      { cause: error },
     );
   }
 
-  let result:
-    DownloadResponse = {};
+  let result: DownloadResponse;
 
   try {
-    result =
-      (await response.json()) as
-        DownloadResponse;
-  } catch {
+    result = (await response.json()) as DownloadResponse;
+  } catch (error) {
     throw new Error(
       `Unable to read the STL download response (HTTP ${response.status}).`,
+      { cause: error },
     );
   }
 
@@ -184,6 +184,7 @@ export async function downloadPrintingStlFile(
 
     throw new Error(
       "Unable to download the STL file from secure storage.",
+      { cause: error },
     );
   }
 

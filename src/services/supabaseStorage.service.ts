@@ -287,6 +287,7 @@ export async function uploadProductImage(
 
     throw new Error(
       "Could not connect to the Supabase image upload service.",
+      { cause: networkError },
     );
   }
 

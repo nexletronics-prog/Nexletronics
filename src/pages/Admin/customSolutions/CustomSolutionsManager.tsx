@@ -9,45 +9,88 @@ import {
   Wrench,
   type LucideIcon,
 } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
-import { Link } from "react-router-dom";
-import { subscribeCustomProjects } from "../../../services/customProject.service";
-import type { CustomProject } from "../../../types/customProject";
 
-function safeString(value: unknown, fallback = ""): string {
-  return typeof value === "string" ? value : fallback;
+import {
+  useEffect,
+  useMemo,
+  useState,
+} from "react";
+
+import {
+  Link,
+} from "react-router-dom";
+
+import {
+  subscribeCustomProjects,
+} from "../../../services/customProject.service";
+
+import type {
+  CustomProject,
+} from "../../../types/customProject";
+
+
+function safeString(
+  value: unknown,
+  fallback = "",
+): string {
+  return typeof value === "string"
+    ? value
+    : fallback;
 }
 
-function getTimeValue(value: unknown): number {
+
+function getTimeValue(
+  value: unknown,
+): number {
   if (value instanceof Date) {
     return value.getTime();
   }
 
   if (typeof value === "number") {
-    return Number.isFinite(value) ? value : 0;
+    return Number.isFinite(value)
+      ? value
+      : 0;
   }
 
   if (typeof value === "string") {
     const parsed = Date.parse(value);
-    return Number.isFinite(parsed) ? parsed : 0;
+
+    return Number.isFinite(parsed)
+      ? parsed
+      : 0;
   }
 
-  if (value && typeof value === "object") {
+  if (
+    value &&
+    typeof value === "object"
+  ) {
     const possible = value as {
       toMillis?: unknown;
       seconds?: unknown;
     };
 
-    if (typeof possible.toMillis === "function") {
+    if (
+      typeof possible.toMillis ===
+      "function"
+    ) {
       const result = Number(
-        (possible.toMillis as () => number)(),
+        (
+          possible.toMillis as
+            () => number
+        )(),
       );
 
-      return Number.isFinite(result) ? result : 0;
+      return Number.isFinite(result)
+        ? result
+        : 0;
     }
 
-    if (possible.seconds !== undefined) {
-      const seconds = Number(possible.seconds);
+    if (
+      possible.seconds !== undefined
+    ) {
+      const seconds = Number(
+        possible.seconds,
+      );
 
       return Number.isFinite(seconds)
         ? seconds * 1000
@@ -58,14 +101,20 @@ function getTimeValue(value: unknown): number {
   return 0;
 }
 
-function formatDate(value: unknown): string {
-  const timestamp = getTimeValue(value);
+
+function formatDate(
+  value: unknown,
+): string {
+  const timestamp =
+    getTimeValue(value);
 
   if (timestamp <= 0) {
     return "—";
   }
 
-  return new Date(timestamp).toLocaleString(
+  return new Date(
+    timestamp,
+  ).toLocaleString(
     "en-IN",
     {
       day: "numeric",
@@ -77,6 +126,7 @@ function formatDate(value: unknown): string {
   );
 }
 
+
 function projectTypeLabel(
   type: CustomProject["projectType"],
 ): string {
@@ -84,6 +134,7 @@ function projectTypeLabel(
     ? "Custom devices"
     : "Custom Website";
 }
+
 
 function statusLabel(
   status: CustomProject["status"],
@@ -106,6 +157,7 @@ function statusLabel(
 
   return labels[status] ?? "New";
 }
+
 
 function statusClass(
   status: CustomProject["status"],
@@ -146,33 +198,54 @@ function statusClass(
   }
 }
 
+
 export default function CustomSolutionsManager() {
-  const [projects, setProjects] =
-    useState<CustomProject[]>([]);
+  const [
+    projects,
+    setProjects,
+  ] = useState<CustomProject[]>([]);
 
-  const [search, setSearch] =
-    useState("");
+  const [
+    search,
+    setSearch,
+  ] = useState("");
 
-  const [statusFilter, setStatusFilter] =
-    useState<
-      CustomProject["status"] | "all"
-    >("all");
+  const [
+    statusFilter,
+    setStatusFilter,
+  ] = useState<
+    CustomProject["status"] | "all"
+  >("all");
 
-  const [typeFilter, setTypeFilter] =
-    useState<
-      CustomProject["projectType"] | "all"
-    >("all");
+  const [
+    typeFilter,
+    setTypeFilter,
+  ] = useState<
+    CustomProject["projectType"] | "all"
+  >("all");
 
-  const [loading, setLoading] =
-    useState(true);
+  const [
+    loading,
+    setLoading,
+  ] = useState(true);
 
-  const [error, setError] =
-    useState("");
+  const [
+    error,
+    setError,
+  ] = useState("");
+
+
+  /*
+   * Subscribe to custom projects.
+   *
+   * Loading is initially true, so the effect does not
+   * need to call setLoading(true) again.
+   *
+   * The listener callbacks update state when project
+   * data or subscription errors arrive.
+   */
 
   useEffect(() => {
-    setLoading(true);
-    setError("");
-
     const unsubscribe =
       subscribeCustomProjects(
         (nextProjects) => {
@@ -187,10 +260,15 @@ export default function CustomSolutionsManager() {
                 ),
             );
 
-          setProjects(sortedProjects);
+          setProjects(
+            sortedProjects,
+          );
+
           setLoading(false);
+
           setError("");
         },
+
         (listenerError) => {
           console.error(
             "Custom project listener failed:",
@@ -209,6 +287,11 @@ export default function CustomSolutionsManager() {
 
     return unsubscribe;
   }, []);
+
+
+  /*
+   * Filter projects.
+   */
 
   const filteredProjects =
     useMemo(() => {
@@ -242,13 +325,11 @@ export default function CustomSolutionsManager() {
 
           const matchesStatus =
             statusFilter === "all" ||
-            project.status ===
-              statusFilter;
+            project.status === statusFilter;
 
           const matchesType =
             typeFilter === "all" ||
-            project.projectType ===
-              typeFilter;
+            project.projectType === typeFilter;
 
           return (
             matchesSearch &&
@@ -264,6 +345,11 @@ export default function CustomSolutionsManager() {
       typeFilter,
     ]);
 
+
+  /*
+   * Dashboard statistics.
+   */
+
   const newCount =
     projects.filter(
       (project) =>
@@ -273,28 +359,28 @@ export default function CustomSolutionsManager() {
   const discussionCount =
     projects.filter(
       (project) =>
-        project.status ===
-        "discussion",
+        project.status === "discussion",
     ).length;
 
   const quotationCount =
     projects.filter(
       (project) =>
-        project.quotationStatus ===
-          "sent" ||
-        project.quotationStatus ===
-          "accepted",
+        project.quotationStatus === "sent" ||
+        project.quotationStatus === "accepted",
     ).length;
 
   const paidCount =
     projects.filter(
       (project) =>
-        project.paymentStatus ===
-        "paid",
+        project.paymentStatus === "paid",
     ).length;
+
 
   return (
     <div className="space-y-7">
+
+      {/* Page heading */}
+
       <div className="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
         <div>
           <p className="text-xs font-black uppercase tracking-[0.2em] text-[#D4AF37]">
@@ -311,13 +397,20 @@ export default function CustomSolutionsManager() {
         </div>
       </div>
 
+
+      {/* Error message */}
+
       {error && (
         <div className="rounded-2xl border border-red-200 bg-red-50 px-5 py-4 text-sm text-red-700">
           {error}
         </div>
       )}
 
+
+      {/* Statistics */}
+
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
+
         <StatCard
           label="Total Projects"
           value={projects.length}
@@ -347,11 +440,18 @@ export default function CustomSolutionsManager() {
           value={paidCount}
           icon={Clock3}
         />
+
       </div>
 
+
+      {/* Search and filters */}
+
       <section className="rounded-3xl border border-neutral-200 bg-white p-5 shadow-sm">
+
         <div className="flex flex-col gap-4 xl:flex-row xl:items-center">
+
           <div className="relative min-w-0 flex-1">
+
             <Search
               size={17}
               className="absolute left-4 top-1/2 -translate-y-1/2 text-neutral-400"
@@ -368,7 +468,9 @@ export default function CustomSolutionsManager() {
               placeholder="Search project, customer or email..."
               className="w-full rounded-2xl border border-neutral-200 py-3 pl-11 pr-4 text-sm outline-none focus:border-[#D4AF37] focus:ring-4 focus:ring-[#D4AF37]/10"
             />
+
           </div>
+
 
           <select
             value={statusFilter}
@@ -426,6 +528,7 @@ export default function CustomSolutionsManager() {
             </option>
           </select>
 
+
           <select
             value={typeFilter}
             onChange={(event) =>
@@ -450,6 +553,7 @@ export default function CustomSolutionsManager() {
             </option>
           </select>
 
+
           <button
             type="button"
             onClick={() => {
@@ -462,12 +566,20 @@ export default function CustomSolutionsManager() {
             <RefreshCw size={15} />
             Reset
           </button>
+
         </div>
+
       </section>
 
+
+      {/* Project list */}
+
       <section className="overflow-hidden rounded-3xl border border-neutral-200 bg-white shadow-sm">
+
         <div className="border-b border-neutral-200 px-6 py-5">
+
           <div className="flex items-center justify-between">
+
             <div>
               <h2 className="font-black text-neutral-950">
                 Customer Projects
@@ -485,11 +597,17 @@ export default function CustomSolutionsManager() {
               <span className="h-2 w-2 rounded-full bg-green-500" />
               Live
             </div>
+
           </div>
+
         </div>
+
+
+        {/* Loading state */}
 
         {loading ? (
           <div className="divide-y divide-neutral-100">
+
             {Array.from({
               length: 5,
             }).map((_, index) => (
@@ -504,10 +622,14 @@ export default function CustomSolutionsManager() {
                 <div className="mt-4 h-10 w-full animate-pulse rounded bg-neutral-100" />
               </div>
             ))}
+
           </div>
-        ) : filteredProjects.length ===
-          0 ? (
+        ) : filteredProjects.length === 0 ? (
+
+          /* Empty state */
+
           <div className="p-14 text-center">
+
             <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-[#D4AF37]/10 text-[#D4AF37]">
               <Wrench size={24} />
             </div>
@@ -519,9 +641,15 @@ export default function CustomSolutionsManager() {
             <p className="mt-2 text-sm text-neutral-500">
               New website and custom-device requests will appear here automatically.
             </p>
+
           </div>
+
         ) : (
+
+          /* Populated project list */
+
           <div className="divide-y divide-neutral-100">
+
             {filteredProjects.map(
               (project) => (
                 <Link
@@ -529,9 +657,15 @@ export default function CustomSolutionsManager() {
                   to={`/admin/custom-solutions/projects/${project.id}`}
                   className="block p-6 transition hover:bg-neutral-50"
                 >
+
                   <div className="flex flex-col gap-5 xl:flex-row xl:items-center xl:justify-between">
+
+                    {/* Customer and project information */}
+
                     <div className="min-w-0 flex-1">
+
                       <div className="flex flex-wrap items-center gap-2">
+
                         <span className="rounded-full bg-[#D4AF37]/10 px-3 py-1.5 text-[10px] font-black uppercase tracking-wider text-[#9b7e1d]">
                           {projectTypeLabel(
                             project.projectType,
@@ -556,7 +690,9 @@ export default function CustomSolutionsManager() {
                             project.status,
                           )}
                         </span>
+
                       </div>
+
 
                       <h3 className="mt-3 truncate text-lg font-black text-neutral-950">
                         {safeString(
@@ -565,7 +701,9 @@ export default function CustomSolutionsManager() {
                         )}
                       </h3>
 
+
                       <div className="mt-2 flex flex-wrap gap-x-5 gap-y-2 text-xs text-neutral-500">
+
                         <span className="inline-flex items-center gap-1.5">
                           <UserRound size={13} />
 
@@ -585,11 +723,15 @@ export default function CustomSolutionsManager() {
                             project.createdAt,
                           )}
                         </span>
+
                       </div>
+
 
                       {project.lastMessage && (
                         <div className="mt-4 max-w-3xl rounded-2xl bg-neutral-50 px-4 py-3">
+
                           <div className="flex items-center gap-2 text-[10px] font-black uppercase tracking-wider text-neutral-400">
+
                             <MessageCircle
                               size={12}
                             />
@@ -605,6 +747,7 @@ export default function CustomSolutionsManager() {
                                   : "Customer"}
                               </span>
                             )}
+
                           </div>
 
                           <p className="mt-1 line-clamp-2 text-xs leading-5 text-neutral-600">
@@ -612,17 +755,25 @@ export default function CustomSolutionsManager() {
                               project.lastMessage,
                             )}
                           </p>
+
                         </div>
                       )}
+
                     </div>
 
+
+                    {/* Quotation and payment summary */}
+
                     <div className="flex shrink-0 items-center justify-between gap-6 xl:justify-end">
+
                       <div className="text-right">
+
                         <p className="text-[10px] font-black uppercase tracking-wider text-neutral-400">
                           Quotation
                         </p>
 
                         <p className="mt-1 font-black text-neutral-900">
+
                           {project.quotationStatus ===
                             "sent" ||
                           project.quotationStatus ===
@@ -637,9 +788,11 @@ export default function CustomSolutionsManager() {
                                 "en-IN",
                               )}`
                             : "Not prepared"}
+
                         </p>
 
                         <p className="mt-1 text-[10px] text-neutral-400">
+
                           {project.paymentStatus ===
                           "paid"
                             ? "Paid"
@@ -647,25 +800,41 @@ export default function CustomSolutionsManager() {
                                 "pending"
                               ? "Payment pending"
                               : "Not paid"}
+
                         </p>
+
                       </div>
 
+
                       <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-neutral-100 text-neutral-400">
+
                         <ArrowRight
                           size={17}
                         />
+
                       </div>
+
                     </div>
+
                   </div>
+
                 </Link>
               ),
             )}
+
           </div>
         )}
+
       </section>
+
     </div>
   );
 }
+
+
+/*
+ * Dashboard statistic card.
+ */
 
 function StatCard({
   label,
@@ -678,7 +847,9 @@ function StatCard({
 }) {
   return (
     <div className="rounded-3xl border border-neutral-200 bg-white p-6 shadow-sm">
+
       <div className="flex items-start justify-between gap-4">
+
         <div>
           <p className="text-xs font-bold uppercase tracking-wider text-neutral-400">
             {label}
@@ -692,7 +863,9 @@ function StatCard({
         <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-[#D4AF37]/10 text-[#D4AF37]">
           <Icon size={20} />
         </div>
+
       </div>
+
     </div>
   );
 }

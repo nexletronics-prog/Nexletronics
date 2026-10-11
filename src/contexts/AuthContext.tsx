@@ -1,10 +1,8 @@
 import {
   onAuthStateChanged,
-  type User,
 } from "firebase/auth";
 
 import {
-  createContext,
   useEffect,
   useMemo,
   useState,
@@ -23,53 +21,10 @@ import {
   saveCustomerProfile,
 } from "../services/customer.service";
 
-
-/*
- * ==========================================================
- * AUTH CONTEXT TYPE
- * ==========================================================
- */
-
-interface AuthContextValue {
-  user:
-    | User
-    | null;
-
-  loading:
-    boolean;
-
-  login:
-    (
-      email: string,
-      password: string,
-    ) => Promise<User>;
-
-  loginWithGoogle:
-    () => Promise<User>;
-
-  register:
-    (
-      name: string,
-      email: string,
-      password: string,
-    ) => Promise<User>;
-
-  logout:
-    () => Promise<void>;
-}
-
-
-/*
- * ==========================================================
- * CONTEXT
- * ==========================================================
- */
-
-export const AuthContext =
-  createContext<
-    AuthContextValue |
-    undefined
-  >(undefined);
+import {
+  AuthContext,
+  type AuthContextValue,
+} from "./AuthContext.context";
 
 
 /*
@@ -87,9 +42,14 @@ export function AuthProvider({
     user,
     setUser,
   ] =
-    useState<User | null>(
-      null,
-    );
+    useState<
+      Awaited<
+        ReturnType<
+          typeof authService["login"]
+        >
+      > |
+      null
+    >(null);
 
   const [
     loading,
@@ -102,16 +62,6 @@ export function AuthProvider({
    * ========================================================
    * FIREBASE AUTH STATE LISTENER
    * ========================================================
-   *
-   * Firebase remains the only authentication system.
-   *
-   * After Firebase authentication succeeds:
-   *
-   * 1. Ensure the Firebase token contains the Supabase
-   *    authentication/admin claims through the backend.
-   * 2. Refresh the Firebase token.
-   * 3. Ensure the Supabase profile exists.
-   * 4. Expose the authenticated Firebase user.
    */
 
   useEffect(() => {
@@ -154,7 +104,8 @@ export function AuthProvider({
                   currentUser.uid,
 
                 email:
-                  currentUser.email ?? null,
+                  currentUser.email ??
+                  null,
               },
             );
 
@@ -170,12 +121,7 @@ export function AuthProvider({
 
 
             /*
-             * Ask the Vercel backend to ensure:
-             *
-             * role = authenticated
-             * is_admin = true / false
-             *
-             * and the Supabase profile exists.
+             * Ensure Supabase authentication role/profile.
              */
 
             const response =
@@ -203,9 +149,13 @@ export function AuthProvider({
             let result:
               {
                 success?: boolean;
+
                 uid?: string;
+
                 role?: string;
+
                 is_admin?: boolean;
+
                 error?: string;
               } = {};
 
@@ -223,7 +173,8 @@ export function AuthProvider({
 
             if (
               !response.ok ||
-              result.success !== true
+              result.success !==
+                true
             ) {
               throw new Error(
                 result.error ??
@@ -238,8 +189,7 @@ export function AuthProvider({
              * ------------------------------------------------
              *
              * The backend may have changed Firebase custom
-             * claims. Refresh the ID token so Supabase sees
-             * the current claims immediately.
+             * claims.
              */
 
             await currentUser.getIdToken(
@@ -251,20 +201,6 @@ export function AuthProvider({
              * ------------------------------------------------
              * ENSURE SUPABASE PROFILE
              * ------------------------------------------------
-             *
-             * IMPORTANT:
-             *
-             * Do NOT pass "provider" here.
-             *
-             * saveCustomerProfile() intentionally accepts:
-             *   uid
-             *   name
-             *   email
-             *   phone
-             *   photoURL
-             *
-             * The provider value is handled by the backend
-             * authentication bridge.
              */
 
             await saveCustomerProfile({
@@ -306,8 +242,7 @@ export function AuthProvider({
 
 
             /*
-             * Now expose the Firebase user to the rest
-             * of the application.
+             * Expose the authenticated Firebase user.
              */
 
             setUser(
@@ -323,8 +258,7 @@ export function AuthProvider({
 
 
             /*
-             * Do not expose a partially configured
-             * authenticated user to the application.
+             * Do not expose a partially configured user.
              */
 
             setUser(
@@ -355,11 +289,13 @@ export function AuthProvider({
         /*
          * Current Firebase user.
          */
+
         user,
 
         /*
          * Authentication loading state.
          */
+
         loading,
 
 

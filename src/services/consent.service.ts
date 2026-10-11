@@ -33,12 +33,8 @@ async function ensureSupabaseAuthReady(uid: string): Promise<void> {
     },
   });
 
-  let result: { success?: boolean; error?: string } = {};
-  try {
-    result = await response.json();
-  } catch {
-    result = {};
-  }
+  const result: { success?: boolean; error?: string } =
+    await response.json().catch(() => ({}));
 
   if (!response.ok || result.success !== true) {
     throw new Error(

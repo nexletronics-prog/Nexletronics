@@ -890,11 +890,6 @@ export default function OrderManager() {
    */
 
   useEffect(() => {
-    setLoading(true);
-
-    setError("");
-
-
     const unsubscribe =
       subscribeToOrders(
         (

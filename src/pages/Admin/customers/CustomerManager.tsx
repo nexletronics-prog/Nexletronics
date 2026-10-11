@@ -1361,14 +1361,19 @@ export default function CustomerManager() {
   }
 
 
-  useEffect(
-    () => {
+  useEffect(() => {
+    let active = true;
 
-      void loadCustomers();
+    void Promise.resolve().then(() => {
+      if (active) {
+        return loadCustomers();
+      }
+    });
 
-    },
-    [],
-  );
+    return () => {
+      active = false;
+    };
+  }, []);
 
 
   /*

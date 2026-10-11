@@ -1355,6 +1355,10 @@ export async function uploadCustomShowcaseImage(
   _folder =
     "gallery",
 ): Promise<string> {
+  void _file;
+  void _category;
+  void _folder;
+
   throw new Error(
     "Direct showcase image uploads are disabled. Add a public image URL instead.",
   );
@@ -1368,6 +1372,9 @@ export async function uploadCustomShowcaseImages(
   _category:
     CustomPortfolioCategory,
 ): Promise<string[]> {
+  void _files;
+  void _category;
+
   throw new Error(
     "Direct showcase image uploads are disabled. Add public image URLs instead.",
   );

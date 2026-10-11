@@ -766,15 +766,6 @@ export default function ServiceManager() {
 
 
   useEffect(() => {
-    setLoading(
-      true,
-    );
-
-    setError(
-      "",
-    );
-
-
     const unsubscribe =
       subscribeToServices(
         (

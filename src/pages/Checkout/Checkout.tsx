@@ -25,7 +25,7 @@ import {
 
 import {
   useCart,
-} from "../../contexts/CartContext";
+} from "../../hooks/useCart";
 
 interface CheckoutForm {
   name: string;

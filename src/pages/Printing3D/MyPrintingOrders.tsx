@@ -142,31 +142,59 @@ export default function MyPrintingOrders() {
    * admin changes without requiring a browser refresh.
    */
 
+  const userId = user?.uid;
+
   useEffect(() => {
-    if (!user) {
-      setOrders([]);
-      setLoading(false);
+    let active = true;
+    let receivedOrdersUpdate = false;
+
+    // Defer the initial state reset and avoid overriding an immediate
+    // subscription callback.
+    queueMicrotask(() => {
+      if (!active || receivedOrdersUpdate) return;
+
+      if (!userId) {
+        setOrders([]);
+        setLoading(false);
+        setError("");
+        return;
+      }
+
+      setLoading(true);
       setError("");
-      return;
+    });
+
+    if (!userId) {
+      return () => {
+        active = false;
+      };
     }
 
-    setLoading(true);
-    setError("");
-
-    return subscribePrintingOrders(
-      user.uid,
+    const unsubscribe = subscribePrintingOrders(
+      userId,
       (nextOrders) => {
+        receivedOrdersUpdate = true;
+        if (!active) return;
+
         setOrders(nextOrders);
         setLoading(false);
         setError("");
       },
       (listenerError) => {
+        receivedOrdersUpdate = true;
+        if (!active) return;
+
         console.error("Unable to load printing orders:", listenerError);
         setError(listenerError.message || "Unable to load your printing requests.");
         setLoading(false);
       },
     );
-  }, [user]);
+
+    return () => {
+      active = false;
+      unsubscribe();
+    };
+  }, [userId]);
 
 
   /*

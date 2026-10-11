@@ -54,7 +54,10 @@ export async function uploadStlFile(
     });
   } catch (error) {
     console.error("STL upload network error:", error);
-    throw new Error("Unable to connect to the printing upload service.");
+    throw new Error(
+      "Unable to connect to the printing upload service.",
+      { cause: error },
+    );
   }
 
   let result: {

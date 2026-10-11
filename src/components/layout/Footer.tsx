@@ -1,23 +1,10 @@
 import {
-  useEffect,
-  useState,
-} from "react";
-
-import {
   Link,
 } from "react-router-dom";
 
 import {
-  defaultGlobalWebsiteSettings,
-} from "../../services/globalSettings.service";
-
-import {
   useGlobalWebsiteSettings,
 } from "../../hooks/useGlobalWebsiteSettings";
-
-import type {
-  GlobalWebsiteSettings,
-} from "../../types/siteSettings";
 
 
 /*
@@ -37,38 +24,10 @@ import type {
 export default function Footer() {
 
   const {
-    settings: liveSettings,
-
+    settings,
     error,
   } =
     useGlobalWebsiteSettings();
-
-
-  const [
-    settings,
-
-    setSettings,
-  ] =
-    useState<GlobalWebsiteSettings>(
-      defaultGlobalWebsiteSettings,
-    );
-
-
-  /*
-   * ========================================================
-   * SYNC REALTIME SETTINGS
-   * ========================================================
-   */
-
-  useEffect(() => {
-
-    setSettings(
-      liveSettings,
-    );
-
-  }, [
-    liveSettings,
-  ]);
 
 
   /*
@@ -159,7 +118,7 @@ export default function Footer() {
 
             {/* =================================================
                 SOCIAL LINKS
-            ================================================== */}
+            ================================================= */}
 
             <div className="mt-6 flex flex-wrap gap-2">
 
@@ -498,35 +457,55 @@ export default function Footer() {
         </div>
 
       </div>
-<div className="flex flex-wrap gap-5 text-sm text-neutral-500">
-  <Link
-    to="/terms"
-    className="hover:text-[#D4AF37]"
-  >
-    Terms & Conditions
-  </Link>
 
-  <Link
-    to="/privacy"
-    className="hover:text-[#D4AF37]"
-  >
-    Privacy Policy
-  </Link>
 
-  <Link
-    to="/refund-policy"
-    className="hover:text-[#D4AF37]"
-  >
-    Refund Policy
-  </Link>
+      <div className="flex flex-wrap gap-5 text-sm text-neutral-500">
 
-  <Link
-    to="/shipping-policy"
-    className="hover:text-[#D4AF37]"
-  >
-    Shipping Policy
-  </Link>
-</div>
+        <Link
+          to="/terms"
+
+          className="hover:text-[#D4AF37]"
+        >
+
+          Terms & Conditions
+
+        </Link>
+
+
+        <Link
+          to="/privacy"
+
+          className="hover:text-[#D4AF37]"
+        >
+
+          Privacy Policy
+
+        </Link>
+
+
+        <Link
+          to="/refund-policy"
+
+          className="hover:text-[#D4AF37]"
+        >
+
+          Refund Policy
+
+        </Link>
+
+
+        <Link
+          to="/shipping-policy"
+
+          className="hover:text-[#D4AF37]"
+        >
+
+          Shipping Policy
+
+        </Link>
+
+      </div>
+
     </footer>
   );
 }

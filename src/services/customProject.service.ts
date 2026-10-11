@@ -1650,28 +1650,16 @@ export async function updateCustomProject(
     data.status !==
     undefined
   ) {
-    let actorType:
+    const actorType:
       | "customer"
-      | "admin" =
-      "customer";
-
-
-    try {
-      const tokenResult =
-        await user.getIdTokenResult(
-          false,
-        );
-
-
-      actorType =
-        tokenResult.claims.is_admin ===
-        true
+      | "admin" = await user
+      .getIdTokenResult(false)
+      .then((tokenResult) =>
+        tokenResult.claims.is_admin === true
           ? "admin"
-          : "customer";
-    } catch {
-      actorType =
-        "customer";
-    }
+          : "customer",
+      )
+      .catch(() => "customer");
 
 
     await createProjectActivity(

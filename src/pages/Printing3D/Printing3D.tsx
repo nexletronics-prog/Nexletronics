@@ -217,9 +217,8 @@ export default function Printing3D() {
    */
 
   useEffect(() => {
-    setLoadingSettings(true);
-    setSettingsError("");
-
+    // Initial values are already loading=true and settingsError="".
+    // Subscribe directly rather than redundantly setting state in the effect.
     return subscribePrintingSettings(
       (nextSettings) => {
         setSettings(nextSettings);

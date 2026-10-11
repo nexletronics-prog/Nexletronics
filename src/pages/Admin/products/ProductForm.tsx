@@ -395,15 +395,7 @@ export default function ProductForm() {
 
   useEffect(() => {
 
-    if (
-      editId ===
-      null
-    ) {
-
-      setLoading(
-        false,
-      );
-
+    if (editId === null) {
       return;
     }
 
@@ -1535,7 +1527,7 @@ export default function ProductForm() {
    */
 
   if (
-    loading
+    editId !== null && loading
   ) {
 
     return (

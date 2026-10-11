@@ -359,6 +359,10 @@ export function CartProvider({
     loading: authLoading,
   } = useAuth();
 
+  // Depend on stable identity fields rather than the entire user object.
+  const userId = user?.uid;
+  const userEmail = user?.email;
+
 
   const [
     items,
@@ -415,7 +419,7 @@ export function CartProvider({
        * ------------------------------------------------------
        */
 
-      if (!user) {
+      if (!userId) {
         const guestItems =
           loadGuestCart();
 
@@ -474,7 +478,7 @@ export function CartProvider({
        */
 
       const uid =
-        user.uid;
+        userId;
 
 
       /*
@@ -502,7 +506,7 @@ export function CartProvider({
           uid,
 
           email:
-            user.email ?? null,
+            userEmail ?? null,
         },
       );
 
@@ -595,7 +599,8 @@ export function CartProvider({
     };
   }, [
     authLoading,
-    user?.uid,
+    userId,
+    userEmail,
   ]);
 
 
@@ -644,7 +649,7 @@ export function CartProvider({
      * ========================================================
      */
 
-    if (!user) {
+    if (!userId) {
       saveGuestCart(
         safeItems,
       );
@@ -674,7 +679,7 @@ export function CartProvider({
      */
 
     const uid =
-      user.uid;
+      userId;
 
 
     let cancelled =
@@ -741,7 +746,7 @@ export function CartProvider({
     authLoading,
     initialized,
     items,
-    user?.uid,
+    userId,
   ]);
 
 
@@ -1194,6 +1199,8 @@ export function CartProvider({
  * ==========================================================
  */
 
+// This context hook is intentionally exported alongside CartProvider.
+// eslint-disable-next-line react-refresh/only-export-components
 export function useCart() {
   const context =
     useContext(

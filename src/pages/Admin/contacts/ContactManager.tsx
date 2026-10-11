@@ -900,16 +900,6 @@ export default function ContactManager() {
 
   useEffect(() => {
 
-    setLoading(
-      true,
-    );
-
-
-    setError(
-      "",
-    );
-
-
     const unsubscribe =
       subscribeContactMessages(
 

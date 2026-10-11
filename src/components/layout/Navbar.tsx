@@ -21,7 +21,7 @@ import {
 
 import {
   useCart,
-} from "../../contexts/CartContext";
+} from "../../hooks/useCart";
 
 import {
   useGlobalWebsiteSettings,

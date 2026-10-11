@@ -181,37 +181,32 @@ export default function CustomPortfolioDetails() {
 
   useEffect(
     () => {
+      let mounted = true;
 
-      if (
-        !projectId
-      ) {
+      if (!projectId) {
+        queueMicrotask(() => {
+          if (!mounted) {
+            return;
+          }
 
-        setItem(
-          null,
-        );
+          setItem(null);
+          setError("Project was not found.");
+          setLoading(false);
+        });
 
-        setError(
-          "Project was not found.",
-        );
-
-        setLoading(
-          false,
-        );
-
-        return;
+        return () => {
+          mounted = false;
+        };
       }
 
+      queueMicrotask(() => {
+        if (!mounted) {
+          return;
+        }
 
-      let mounted =
-        true;
-
-      setLoading(
-        true,
-      );
-
-      setError(
-        "",
-      );
+        setLoading(true);
+        setError("");
+      });
 
 
       void getCustomPortfolioItem(
@@ -353,11 +348,8 @@ export default function CustomPortfolioDetails() {
 
 
       return () => {
-
         mounted = false;
-
         unsubscribe();
-
       };
 
     },
@@ -496,36 +488,29 @@ export default function CustomPortfolioDetails() {
 
   useEffect(
     () => {
+      let active = true;
 
-      if (
-        galleryImages.length ===
-        0
-      ) {
+      queueMicrotask(() => {
+        if (!active) {
+          return;
+        }
 
-        setActiveImage(
-          "",
-        );
+        setActiveImage((currentImage) => {
+          if (galleryImages.length === 0) {
+            return "";
+          }
 
-
-        return;
-      }
-
-
-      setActiveImage(
-        (
-          currentImage,
-        ) =>
-          galleryImages.includes(
-            currentImage,
-          )
+          return galleryImages.includes(currentImage)
             ? currentImage
-            : galleryImages[0],
-      );
+            : galleryImages[0];
+        });
+      });
 
+      return () => {
+        active = false;
+      };
     },
-    [
-      galleryImages,
-    ],
+    [galleryImages],
   );
 
 

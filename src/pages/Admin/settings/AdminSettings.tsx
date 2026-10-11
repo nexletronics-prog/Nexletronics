@@ -153,17 +153,21 @@ export default function AdminSettings() {
    */
 
   useEffect(() => {
-
-    if (
-      !dirty
-    ) {
-
-      setSettings(
-        liveSettings,
-      );
-
+    if (dirty) {
+      return;
     }
 
+    let cancelled = false;
+
+    queueMicrotask(() => {
+      if (!cancelled) {
+        setSettings(liveSettings);
+      }
+    });
+
+    return () => {
+      cancelled = true;
+    };
   }, [
     liveSettings,
     dirty,

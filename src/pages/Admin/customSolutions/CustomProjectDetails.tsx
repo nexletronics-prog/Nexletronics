@@ -462,6 +462,11 @@ export default function CustomProjectDetails() {
       CustomProjectMessage[]
     >([]);
 
+  const [
+    messagesProjectId,
+    setMessagesProjectId,
+  ] = useState<string | null>(null);
+
 
   /*
    * ========================================================
@@ -491,6 +496,13 @@ export default function CustomProjectDetails() {
     useState(
       true,
     );
+
+  // Tracks the route ID resolved by the project subscription.
+  // This prevents stale project content flashing on route changes.
+  const [
+    loadedProjectId,
+    setLoadedProjectId,
+  ] = useState<string | null>(null);
 
 
   /*
@@ -574,91 +586,51 @@ export default function CustomProjectDetails() {
    * ========================================================
    */
 
-  useEffect(
-    () => {
+  useEffect(() => {
+    if (!projectId) {
+      return;
+    }
 
-      if (
-        !projectId
-      ) {
+    let active = true;
 
-        setProject(
-          null,
-        );
-
-        setError(
-          "Project ID is missing.",
-        );
-
-        setLoading(
-          false,
-        );
-
-        return;
-      }
-
-
-      setLoading(
-        true,
-      );
-
-
-      setError(
-        "",
-      );
-
-
-      const unsubscribe =
-        subscribeCustomProject(
-
-          projectId,
-
-          (
-            nextProject,
-          ) => {
-
-            setProject(
-              nextProject,
-            );
-
-            setLoading(
-              false,
-            );
-
-          },
-
-          (
-            listenerError,
-          ) => {
-
-            console.error(
-              "Admin project listener failed:",
-              listenerError,
-            );
-
-
-            setError(
-              listenerError instanceof Error
-                ? listenerError.message
-                : "Unable to load project.",
-            );
-
-
-            setLoading(
-              false,
-            );
-
-          },
-        );
-
-
-      return () =>
-        unsubscribe();
-
-    },
-    [
+    const unsubscribe = subscribeCustomProject(
       projectId,
-    ],
-  );
+      (nextProject) => {
+        if (!active) {
+          return;
+        }
+
+        setProject(nextProject);
+        setLoadedProjectId(projectId);
+        setError("");
+        setLoading(false);
+      },
+      (listenerError) => {
+        if (!active) {
+          return;
+        }
+
+        console.error(
+          "Admin project listener failed:",
+          listenerError,
+        );
+
+        setProject(null);
+        setLoadedProjectId(projectId);
+        setError(
+          listenerError instanceof Error
+            ? listenerError.message
+            : "Unable to load project.",
+        );
+        setLoading(false);
+      },
+    );
+
+    return () => {
+      active = false;
+      unsubscribe();
+    };
+  }, [projectId]);
 
 
   /*
@@ -667,64 +639,46 @@ export default function CustomProjectDetails() {
    * ========================================================
    */
 
-  useEffect(
-    () => {
+  useEffect(() => {
+    if (!projectId) {
+      return;
+    }
 
-      if (
-        !projectId
-      ) {
+    let active = true;
 
-        setMessages(
-          [],
-        );
-
-        return;
-      }
-
-
-      const unsubscribe =
-        subscribeCustomProjectMessages(
-
-          projectId,
-
-          (
-            nextMessages,
-          ) => {
-
-            setMessages(
-              nextMessages,
-            );
-
-          },
-
-          (
-            listenerError,
-          ) => {
-
-            console.error(
-              "Admin project message listener failed:",
-              listenerError,
-            );
-
-
-            setError(
-              listenerError instanceof Error
-                ? listenerError.message
-                : "Unable to load project conversation.",
-            );
-
-          },
-        );
-
-
-      return () =>
-        unsubscribe();
-
-    },
-    [
+    const unsubscribe = subscribeCustomProjectMessages(
       projectId,
-    ],
-  );
+      (nextMessages) => {
+        if (!active) {
+          return;
+        }
+
+        setMessages(nextMessages);
+        setMessagesProjectId(projectId);
+      },
+      (listenerError) => {
+        if (!active) {
+          return;
+        }
+
+        console.error(
+          "Admin project message listener failed:",
+          listenerError,
+        );
+
+        setError(
+          listenerError instanceof Error
+            ? listenerError.message
+            : "Unable to load project conversation.",
+        );
+      },
+    );
+
+    return () => {
+      active = false;
+      unsubscribe();
+    };
+  }, [projectId]);
 
 
   /*
@@ -736,7 +690,7 @@ export default function CustomProjectDetails() {
   const sortedMessages =
     useMemo(
       () =>
-        [...messages].sort(
+        (messagesProjectId === projectId ? [...messages] : []).sort(
           (
             first,
             second,
@@ -750,6 +704,8 @@ export default function CustomProjectDetails() {
         ),
       [
         messages,
+        messagesProjectId,
+        projectId,
       ],
     );
 
@@ -1147,7 +1103,8 @@ export default function CustomProjectDetails() {
    */
 
   if (
-    loading
+    Boolean(projectId) &&
+    (loading || loadedProjectId !== projectId)
   ) {
 
     return (
@@ -1177,7 +1134,9 @@ export default function CustomProjectDetails() {
    */
 
   if (
-    !project
+    !projectId ||
+    !project ||
+    loadedProjectId !== projectId
   ) {
 
     return (
@@ -1200,8 +1159,10 @@ export default function CustomProjectDetails() {
           <p className="mt-3 text-sm leading-6 text-neutral-500">
 
             {
-              error ||
-              "The requested custom project could not be found."
+              !projectId
+                ? "Project ID is missing."
+                : error ||
+                  "The requested custom project could not be found."
             }
 
           </p>

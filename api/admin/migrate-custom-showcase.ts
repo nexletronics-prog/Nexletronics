@@ -12,13 +12,11 @@ import {
   adminDb,
 } from "../_lib/firebase-admin.mjs";
 
-
 const supabaseUrl =
   process.env.VITE_SUPABASE_URL;
 
 const serviceRoleKey =
   process.env.SUPABASE_SERVICE_ROLE_KEY;
-
 
 if (
   !supabaseUrl
@@ -28,7 +26,6 @@ if (
   );
 }
 
-
 if (
   !serviceRoleKey
 ) {
@@ -36,7 +33,6 @@ if (
     "Missing SUPABASE_SERVICE_ROLE_KEY.",
   );
 }
-
 
 const supabase =
   createClient(
@@ -53,7 +49,6 @@ const supabase =
     },
   );
 
-
 function stringValue(
   value: unknown,
 ): string {
@@ -62,7 +57,6 @@ function stringValue(
     ? value.trim()
     : "";
 }
-
 
 function stringArray(
   value: unknown,
@@ -74,7 +68,6 @@ function stringArray(
   ) {
     return [];
   }
-
 
   return [
     ...new Set(
@@ -98,24 +91,6 @@ function stringArray(
   ];
 }
 
-
-function numberValue(
-  value: unknown,
-): number {
-  const parsed =
-    Number(
-      value,
-    );
-
-
-  return Number.isFinite(
-    parsed,
-  )
-    ? parsed
-    : 0;
-}
-
-
 function timestampToIso(
   value: unknown,
 ): string | null {
@@ -130,14 +105,12 @@ function timestampToIso(
         toDate?: () => Date;
       };
 
-
     if (
       typeof timestamp.toDate ===
       "function"
     ) {
       const date =
         timestamp.toDate();
-
 
       if (
         date instanceof Date &&
@@ -150,13 +123,11 @@ function timestampToIso(
     }
   }
 
-
   if (
     value instanceof Date
   ) {
     return value.toISOString();
   }
-
 
   if (
     typeof value ===
@@ -167,7 +138,6 @@ function timestampToIso(
         value,
       );
 
-
     if (
       !Number.isNaN(
         date.getTime(),
@@ -177,10 +147,8 @@ function timestampToIso(
     }
   }
 
-
   return null;
 }
-
 
 export default async function handler(
   req: VercelRequest,
@@ -201,7 +169,6 @@ export default async function handler(
     });
   }
 
-
   try {
     /*
      * ======================================================
@@ -211,7 +178,6 @@ export default async function handler(
 
     const authorization =
       req.headers.authorization;
-
 
     if (
       !authorization ||
@@ -230,12 +196,10 @@ export default async function handler(
       });
     }
 
-
     const idToken =
       authorization
         .slice(7)
         .trim();
-
 
     if (
       !idToken
@@ -251,12 +215,10 @@ export default async function handler(
       });
     }
 
-
     const decodedToken =
       await adminAuth.verifyIdToken(
         idToken,
       );
-
 
     if (
       decodedToken.is_admin !==
@@ -273,7 +235,6 @@ export default async function handler(
       });
     }
 
-
     /*
      * ======================================================
      * PORTFOLIO
@@ -287,7 +248,6 @@ export default async function handler(
         )
         .get();
 
-
     const rows =
       portfolioSnapshot.docs.map(
         (
@@ -296,13 +256,11 @@ export default async function handler(
           const data =
             document.data();
 
-
           const category =
             data.category ===
             "devices"
               ? "devices"
               : "website";
-
 
           return {
             id:
@@ -392,7 +350,6 @@ export default async function handler(
         },
       );
 
-
     if (
       rows.length >
       0
@@ -413,14 +370,12 @@ export default async function handler(
             },
           );
 
-
       if (
         portfolioError
       ) {
         throw portfolioError;
       }
     }
-
 
     /*
      * ======================================================
@@ -437,26 +392,21 @@ export default async function handler(
           "default",
         );
 
-
     const settingsSnapshot =
       await settingsRef.get();
-
 
     const settingsData =
       settingsSnapshot.exists
         ? settingsSnapshot.data()
         : {};
 
-
     const websitesEnabled =
       settingsData?.websitesEnabled !==
       false;
 
-
     const devicesEnabled =
       settingsData?.devicesEnabled !==
       false;
-
 
     const {
       error:
@@ -486,13 +436,11 @@ export default async function handler(
           },
         );
 
-
     if (
       settingsError
     ) {
       throw settingsError;
     }
-
 
     /*
      * ======================================================
@@ -522,7 +470,6 @@ export default async function handler(
       destination:
         "Supabase custom_portfolio + custom_showcase_settings",
     });
-
   } catch (
     error
   ) {
@@ -530,7 +477,6 @@ export default async function handler(
       "[CUSTOM SHOWCASE MIGRATION] Failed:",
       error,
     );
-
 
     return res.status(
       500,

@@ -159,6 +159,9 @@ export default function HomepageSTLViewer({
   const zoomEnabledRef =
     useRef(zoomEnabled);
 
+  const zoomLevelRef =
+    useRef(zoomLevel);
+
   /*
    * =========================================================
    * LIVE PROP VALUES
@@ -192,6 +195,9 @@ export default function HomepageSTLViewer({
    */
 
   useEffect(() => {
+    zoomLevelRef.current =
+      zoomLevel;
+
     const camera =
       cameraRef.current;
 
@@ -283,7 +289,7 @@ export default function HomepageSTLViewer({
 
     const initialDistance =
       getCameraDistance(
-        zoomLevel,
+        zoomLevelRef.current,
       );
 
     camera.position.set(

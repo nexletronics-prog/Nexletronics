@@ -166,12 +166,13 @@ export default function CustomQuotation() {
 
 
   const [
-    loadingProject,
-    setLoadingProject,
-  ] =
-    useState(
-      true,
-    );
+    loadedProjectId,
+    setLoadedProjectId,
+  ] = useState<string | null>(null);
+
+  // Loading is derived from the route project ID and the
+  // last project ID successfully resolved by the subscription.
+  const loadingProject = Boolean(projectId) && loadedProjectId !== projectId;
 
 
   const [
@@ -281,80 +282,40 @@ export default function CustomQuotation() {
 
   useEffect(
     () => {
-
-      if (
-        !projectId
-      ) {
-
-        setLoadingProject(
-          false,
-        );
-
-        setError(
-          "Project ID is missing.",
-        );
-
+      if (!projectId) {
+        // A missing route parameter is handled by the existing
+        // project-not-found UI below. No state update is needed.
         return;
       }
 
+      const currentProjectId = projectId;
 
-      setLoadingProject(
-        true,
+      const unsubscribe = subscribeCustomProject(
+        currentProjectId,
+        (nextProject) => {
+          setProject(nextProject);
+          setLoadedProjectId(currentProjectId);
+          setError("");
+        },
+        (listenerError) => {
+          console.error(
+            "Quotation project listener failed:",
+            listenerError,
+          );
+
+          setProject(null);
+          setLoadedProjectId(currentProjectId);
+          setError(
+            listenerError instanceof Error
+              ? listenerError.message
+              : "Unable to load the project.",
+          );
+        },
       );
 
-
-      const unsubscribe =
-        subscribeCustomProject(
-
-          projectId,
-
-          (
-            nextProject,
-          ) => {
-
-            setProject(
-              nextProject,
-            );
-
-
-            setLoadingProject(
-              false,
-            );
-
-          },
-
-          (
-            listenerError,
-          ) => {
-
-            console.error(
-              "Quotation project listener failed:",
-              listenerError,
-            );
-
-
-            setError(
-              listenerError instanceof Error
-                ? listenerError.message
-                : "Unable to load the project.",
-            );
-
-
-            setLoadingProject(
-              false,
-            );
-
-          },
-        );
-
-
-      return () =>
-        unsubscribe();
-
+      return () => unsubscribe();
     },
-    [
-      projectId,
-    ],
+    [projectId],
   );
 
 
@@ -786,6 +747,7 @@ export default function CustomQuotation() {
    */
 
   if (
+    !projectId ||
     !project
   ) {
 

@@ -85,11 +85,6 @@ export default function ProductManager() {
    */
 
   useEffect(() => {
-    setLoading(true);
-
-    setError("");
-
-
     const unsubscribe =
       subscribeToProducts(
         (

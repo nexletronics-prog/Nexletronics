@@ -589,9 +589,19 @@ export default function CustomSolutions() {
    * ========================================================
    */
 
-  useEffect(
-    () => {
-      if (!user) {
+  const userId = user?.uid;
+
+  useEffect(() => {
+    let active = true;
+    let receivedProjectUpdate = false;
+
+    // Defer initial UI synchronization to avoid setting state in the
+    // synchronous body of the effect. The guard prevents this reset from
+    // overwriting a subscription result that arrives immediately.
+    queueMicrotask(() => {
+      if (!active || receivedProjectUpdate) return;
+
+      if (!userId) {
         setProjects([]);
         setProjectsLoading(false);
         setProjectsError("");
@@ -600,34 +610,48 @@ export default function CustomSolutions() {
 
       setProjectsLoading(true);
       setProjectsError("");
+    });
 
-      const unsubscribe = subscribeCustomerCustomProjects(
-        user.uid,
-        (customerProjects) => {
-          setProjects(customerProjects);
-          setProjectsLoading(false);
-          setProjectsError("");
-        },
-        (listenerError) => {
-          console.error(
-            "Customer custom projects listener failed:",
-            listenerError,
-          );
+    if (!userId) {
+      return () => {
+        active = false;
+      };
+    }
 
-          setProjects([]);
-          setProjectsLoading(false);
-          setProjectsError(
-            listenerError instanceof Error
-              ? listenerError.message
-              : "Unable to load your previous projects.",
-          );
-        },
-      );
+    const unsubscribe = subscribeCustomerCustomProjects(
+      userId,
+      (customerProjects) => {
+        receivedProjectUpdate = true;
+        if (!active) return;
 
-      return () => unsubscribe();
-    },
-    [user?.uid],
-  );
+        setProjects(customerProjects);
+        setProjectsLoading(false);
+        setProjectsError("");
+      },
+      (listenerError) => {
+        receivedProjectUpdate = true;
+        if (!active) return;
+
+        console.error(
+          "Customer custom projects listener failed:",
+          listenerError,
+        );
+
+        setProjects([]);
+        setProjectsLoading(false);
+        setProjectsError(
+          listenerError instanceof Error
+            ? listenerError.message
+            : "Unable to load your previous projects.",
+        );
+      },
+    );
+
+    return () => {
+      active = false;
+      unsubscribe();
+    };
+  }, [userId]);
 
 
   /*

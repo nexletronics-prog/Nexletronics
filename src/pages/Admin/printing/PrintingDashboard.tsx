@@ -654,14 +654,19 @@ export default function PrintingDashboard() {
    * ========================================================
    */
 
-  useEffect(
-    () => {
+  useEffect(() => {
+    let active = true;
 
-      void loadOrders();
+    void Promise.resolve().then(() => {
+      if (active) {
+        return loadOrders();
+      }
+    });
 
-    },
-    [],
-  );
+    return () => {
+      active = false;
+    };
+  }, []);
 
 
   /*

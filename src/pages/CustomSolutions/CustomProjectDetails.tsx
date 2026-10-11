@@ -391,75 +391,59 @@ export default function CustomProjectDetails() {
 
   useEffect(
     () => {
+      let active = true;
 
-      if (
-        !projectId
-      ) {
+      if (!projectId) {
+        queueMicrotask(() => {
+          if (!active) {
+            return;
+          }
 
-        setLoading(
-          false,
-        );
+          setLoading(false);
+          setError("Project was not found.");
+        });
 
-        setError(
-          "Project was not found.",
-        );
-
-        return;
+        return () => {
+          active = false;
+        };
       }
-
 
       const unsubscribe =
         subscribeCustomProject(
-
           projectId,
+          (nextProject) => {
+            if (!active) {
+              return;
+            }
 
-          (
-            nextProject,
-          ) => {
-
-            setProject(
-              nextProject,
-            );
-
-
-            setLoading(
-              false,
-            );
-
+            setProject(nextProject);
+            setLoading(false);
           },
-
-          (
-            listenerError,
-          ) => {
+          (listenerError) => {
+            if (!active) {
+              return;
+            }
 
             console.error(
               "Customer project listener failed:",
               listenerError,
             );
 
-
             setError(
               listenerError.message ||
-              "Unable to load project.",
+                "Unable to load project.",
             );
 
-
-            setLoading(
-              false,
-            );
-
+            setLoading(false);
           },
-
         );
 
-
-      return () =>
+      return () => {
+        active = false;
         unsubscribe();
-
+      };
     },
-    [
-      projectId,
-    ],
+    [projectId],
   );
 
 
@@ -471,61 +455,51 @@ export default function CustomProjectDetails() {
 
   useEffect(
     () => {
+      let active = true;
 
-      if (
-        !projectId
-      ) {
+      if (!projectId) {
+        queueMicrotask(() => {
+          if (active) {
+            setMessages([]);
+          }
+        });
 
-        setMessages(
-          [],
-        );
-
-        return;
+        return () => {
+          active = false;
+        };
       }
-
 
       const unsubscribe =
         subscribeCustomProjectMessages(
-
           projectId,
-
-          (
-            nextMessages,
-          ) => {
-
-            setMessages(
-              nextMessages,
-            );
-
+          (nextMessages) => {
+            if (active) {
+              setMessages(nextMessages);
+            }
           },
-
-          (
-            listenerError,
-          ) => {
+          (listenerError) => {
+            if (!active) {
+              return;
+            }
 
             console.error(
               "Customer project messages listener failed:",
               listenerError,
             );
 
-
             setError(
               listenerError.message ||
-              "Unable to load project conversation.",
+                "Unable to load project conversation.",
             );
-
           },
-
         );
 
-
-      return () =>
+      return () => {
+        active = false;
         unsubscribe();
-
+      };
     },
-    [
-      projectId,
-    ],
+    [projectId],
   );
 
 
