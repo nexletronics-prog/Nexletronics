@@ -213,6 +213,39 @@ function getSupabaseAdmin() {
 
 
 /*
+ * Persist evidence of a Razorpay-captured payment even when the
+ * corresponding application order cannot yet be completed. This leaves
+ * app_order_id unset and the session unverified, so a retry can safely
+ * finish order creation and operators can identify payments needing review.
+ */
+async function recordCapturedPaymentForRecovery(
+  supabase: ReturnType<typeof getSupabaseAdmin>,
+  razorpayOrderId: string,
+  razorpayPaymentId: string,
+  razorpaySignature: string,
+  paymentData: { status?: string; method?: string },
+): Promise<void> {
+  const { error } = await supabase
+    .from("payment_sessions")
+    .update({
+      razorpay_payment_id: razorpayPaymentId,
+      razorpay_signature: razorpaySignature,
+      razorpay_payment_status: paymentData.status ?? "captured",
+      payment_method: paymentData.method ?? "razorpay",
+      updated_at: new Date().toISOString(),
+    })
+    .eq("razorpay_order_id", razorpayOrderId);
+
+  if (error) {
+    console.error(
+      "[verify-payment] Failed to persist captured payment for recovery:",
+      error,
+    );
+  }
+}
+
+
+/*
  * ==========================================================
  * GOOGLE SHEETS
  * ==========================================================
@@ -840,72 +873,75 @@ export async function POST(
     if (
       existingOrder
     ) {
-      const now =
-        new Date().toISOString();
-
+      const expectedItemsCount = Array.isArray(paymentSession.items)
+        ? paymentSession.items.length
+        : 0;
 
       const {
-        error:
-          repairSessionError,
-      } =
-        await supabase
-          .from(
-            "payment_sessions",
-          )
-          .update({
-            status:
-              "verified",
+        count: existingItemsCount,
+        error: existingItemsError,
+      } = await supabase
+        .from("order_items")
+        .select("id", { count: "exact", head: true })
+        .eq("order_id", existingOrder.id);
 
-            razorpay_payment_id:
-              razorpayPaymentId,
-
-            razorpay_signature:
-              razorpaySignature,
-
-            razorpay_payment_status:
-              paymentData.status,
-
-            payment_method:
-              paymentData.method ??
-              "razorpay",
-
-            app_order_id:
-              existingOrder.id,
-
-            verified_at:
-              now,
-
-            updated_at:
-              now,
-          })
-          .eq(
-            "razorpay_order_id",
-            razorpayOrderId,
-          );
-
+      if (existingItemsError) {
+        throw existingItemsError;
+      }
 
       if (
-        repairSessionError
+        expectedItemsCount === 0 ||
+        existingItemsCount !== expectedItemsCount
       ) {
+        await recordCapturedPaymentForRecovery(
+          supabase,
+          razorpayOrderId,
+          razorpayPaymentId,
+          razorpaySignature,
+          paymentData,
+        );
+
+        return json(
+          {
+            success: false,
+            verified: true,
+            paymentCaptured: true,
+            orderCreated: false,
+            reconciliationRequired: true,
+            error:
+              "Payment was captured, but the order is incomplete. Please retry shortly or contact Nexletronics support.",
+          },
+          503,
+        );
+      }
+
+      const now = new Date().toISOString();
+      const { error: repairSessionError } = await supabase
+        .from("payment_sessions")
+        .update({
+          status: "verified",
+          razorpay_payment_id: razorpayPaymentId,
+          razorpay_signature: razorpaySignature,
+          razorpay_payment_status: paymentData.status,
+          payment_method: paymentData.method ?? "razorpay",
+          app_order_id: existingOrder.id,
+          verified_at: now,
+          updated_at: now,
+        })
+        .eq("razorpay_order_id", razorpayOrderId);
+
+      if (repairSessionError) {
         console.error(
           "[verify-payment] Could not repair payment session:",
           repairSessionError,
         );
       }
 
-
       return json({
-        success:
-          true,
-
-        verified:
-          true,
-
-        orderId:
-          existingOrder.id,
-
+        success: true,
+        verified: true,
+        orderId: existingOrder.id,
         razorpayOrderId,
-
         razorpayPaymentId,
       });
     }
@@ -952,33 +988,25 @@ export async function POST(
         stockReservationError,
       );
 
-
-      /*
-       * The payment is already captured.
-       *
-       * We intentionally do not create a PAID order when the
-       * requested stock cannot be reserved.
-       *
-       * This response must be reconciled/refunded through the
-       * payment operations flow.
-       */
+      // Payment is captured, so retain the payment evidence for reconciliation.
+      // No stock marker was committed when the reservation RPC failed.
+      await recordCapturedPaymentForRecovery(
+        supabase,
+        razorpayOrderId,
+        razorpayPaymentId,
+        razorpaySignature,
+        paymentData,
+      );
 
       return json(
         {
-          success:
-            false,
-
-          verified:
-            true,
-
-          paymentCaptured:
-            true,
-
-          stockReserved:
-            false,
-
+          success: false,
+          verified: true,
+          paymentCaptured: true,
+          stockReserved: false,
+          reconciliationRequired: true,
           error:
-            "Payment was captured, but the requested stock is no longer available. Please contact Nexletronics support for refund/reconciliation.",
+            "Payment was captured, but stock could not be reserved. Please contact Nexletronics support for reconciliation or refund.",
         },
         409,
       );
@@ -1213,90 +1241,106 @@ export async function POST(
       if (
         concurrentOrder
       ) {
+        const expectedItemsCount = Array.isArray(paymentSession.items)
+          ? paymentSession.items.length
+          : 0;
+        const {
+          count: concurrentItemsCount,
+          error: concurrentItemsError,
+        } = await supabase
+          .from("order_items")
+          .select("id", { count: "exact", head: true })
+          .eq("order_id", concurrentOrder.id);
 
-        await supabase
-          .from(
-            "payment_sessions",
-          )
-          .update({
-            status:
-              "verified",
+        if (concurrentItemsError) {
+          throw concurrentItemsError;
+        }
 
-            razorpay_payment_id:
-              razorpayPaymentId,
-
-            razorpay_signature:
-              razorpaySignature,
-
-            razorpay_payment_status:
-              paymentData.status,
-
-            payment_method:
-              paymentData.method ??
-              "razorpay",
-
-            app_order_id:
-              concurrentOrder.id,
-
-            verified_at:
-              now,
-
-            updated_at:
-              now,
-          })
-          .eq(
-            "razorpay_order_id",
+        if (
+          expectedItemsCount === 0 ||
+          concurrentItemsCount !== expectedItemsCount
+        ) {
+          await recordCapturedPaymentForRecovery(
+            supabase,
             razorpayOrderId,
+            razorpayPaymentId,
+            razorpaySignature,
+            paymentData,
           );
 
+          return json(
+            {
+              success: false,
+              verified: true,
+              paymentCaptured: true,
+              orderCreated: false,
+              reconciliationRequired: true,
+              error:
+                "Payment was captured, but the concurrent order is incomplete. Please retry shortly or contact Nexletronics support.",
+            },
+            503,
+          );
+        }
+
+        const { error: concurrentSessionError } = await supabase
+          .from("payment_sessions")
+          .update({
+            status: "verified",
+            razorpay_payment_id: razorpayPaymentId,
+            razorpay_signature: razorpaySignature,
+            razorpay_payment_status: paymentData.status,
+            payment_method: paymentData.method ?? "razorpay",
+            app_order_id: concurrentOrder.id,
+            verified_at: now,
+            updated_at: now,
+          })
+          .eq("razorpay_order_id", razorpayOrderId);
+
+        if (concurrentSessionError) {
+          console.error(
+            "[verify-payment] Failed to repair concurrent payment session:",
+            concurrentSessionError,
+          );
+        }
 
         return json({
-          success:
-            true,
-
-          verified:
-            true,
-
-          orderId:
-            concurrentOrder.id,
-
+          success: true,
+          verified: true,
+          orderId: concurrentOrder.id,
           razorpayOrderId,
-
           razorpayPaymentId,
         });
       }
 
 
       /*
-       * Order creation genuinely failed.
-       *
-       * Restore the stock reservation.
+       * Payment has already been captured. Do not release the stock
+       * reservation here: making those units available again could permit
+       * an oversell while the captured payment is being retried/reconciled.
+       * The failed insert leaves app_order_id unset, so a retry can attempt
+       * the order creation again without decrementing stock a second time.
        */
+      await recordCapturedPaymentForRecovery(
+        supabase,
+        razorpayOrderId,
+        razorpayPaymentId,
+        razorpaySignature,
+        paymentData,
+      );
 
-      const {
-        error:
-          releaseError,
-      } =
-        await supabase.rpc(
-          "release_payment_stock",
-          {
-            p_razorpay_order_id:
-              razorpayOrderId,
-          },
-        );
-
-
-      if (
-        releaseError
-      ) {
-        console.error(
-          "[verify-payment] Failed to release stock after order insert failure:",
-          releaseError,
-        );
-      }
-
-
-      throw orderError;
+      return json(
+        {
+          success: false,
+          verified: true,
+          paymentCaptured: true,
+          orderCreated: false,
+          stockReserved: true,
+          reconciliationRequired: true,
+          error:
+            "Payment was captured, but order creation did not finish. Please retry shortly; if the problem continues, contact Nexletronics support.",
+        },
+        503,
+      );
     }
 
 
@@ -1353,33 +1397,31 @@ export async function POST(
 
 
       /*
-       * Restore reserved stock.
+       * Payment has already been captured. Keep the stock reservation
+       * until the order can be reconstructed or support reconciles/refunds
+       * the payment. Releasing stock here could oversell already-paid items.
        */
+      await recordCapturedPaymentForRecovery(
+        supabase,
+        razorpayOrderId,
+        razorpayPaymentId,
+        razorpaySignature,
+        paymentData,
+      );
 
-      const {
-        error:
-          releaseError,
-      } =
-        await supabase.rpc(
-          "release_payment_stock",
-          {
-            p_razorpay_order_id:
-              razorpayOrderId,
-          },
-        );
-
-
-      if (
-        releaseError
-      ) {
-        console.error(
-          "[verify-payment] Failed to release stock after order-item failure:",
-          releaseError,
-        );
-      }
-
-
-      throw itemError;
+      return json(
+        {
+          success: false,
+          verified: true,
+          paymentCaptured: true,
+          orderCreated: false,
+          stockReserved: true,
+          reconciliationRequired: true,
+          error:
+            "Payment was captured, but the order items could not be saved. Please retry shortly; if the problem continues, contact Nexletronics support.",
+        },
+        503,
+      );
     }
 
 
