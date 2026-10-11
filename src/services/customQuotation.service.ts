@@ -1645,83 +1645,16 @@ export async function sendCustomQuotation(
   }
 
 
-  const now =
-    new Date().toISOString();
+  const { error } = await supabase.rpc(
+    "send_custom_quotation",
+    {
+      p_project_id: projectId,
+      p_quotation_id: quotationId,
+    },
+  );
 
-
-  const {
-    error:
-      quotationError,
-  } =
-    await supabase
-      .from(
-        QUOTATIONS_TABLE,
-      )
-      .update({
-        status:
-          "sent",
-
-        updated_at:
-          now,
-      })
-      .eq(
-        "id",
-        quotationId,
-      )
-      .eq(
-        "project_id",
-        projectId,
-      );
-
-
-  if (
-    quotationError
-  ) {
-    throw quotationError;
-  }
-
-
-  /*
-   * Keep parent project state in sync.
-   */
-
-  const {
-    error:
-      projectError,
-  } =
-    await supabase
-      .from(
-        PROJECTS_TABLE,
-      )
-      .update({
-        quotation_status:
-          "sent",
-
-        active_quotation_id:
-          quotationId,
-
-        quoted_amount:
-          quotation.total,
-
-        status:
-          "quotation_sent",
-
-        payment_status:
-          "not_required",
-
-        updated_at:
-          now,
-      })
-      .eq(
-        "id",
-        projectId,
-      );
-
-
-  if (
-    projectError
-  ) {
-    throw projectError;
+  if (error) {
+    throw error;
   }
 }
 
@@ -1833,101 +1766,18 @@ export async function acceptCustomQuotation(
   }
 
 
-  const now =
-    new Date().toISOString();
+  const { error } = await supabase.rpc(
+    "respond_custom_quotation",
+    {
+      p_project_id: projectId,
+      p_quotation_id: quotationId,
+      p_action: "accept",
+      p_reason: null,
+    },
+  );
 
-
-  const nextProjectStatus =
-    quotation.paymentRequired
-      ? "payment_pending"
-      : "confirmed";
-
-
-  const nextPaymentStatus =
-    quotation.paymentRequired
-      ? "pending"
-      : "not_required";
-
-
-  const {
-    error:
-      quotationError,
-  } =
-    await supabase
-      .from(
-        QUOTATIONS_TABLE,
-      )
-      .update({
-        status:
-          "accepted",
-
-        accepted_by:
-          user.uid,
-
-        accepted_at:
-          now,
-
-        updated_at:
-          now,
-      })
-      .eq(
-        "id",
-        quotationId,
-      )
-      .eq(
-        "project_id",
-        projectId,
-      );
-
-
-  if (
-    quotationError
-  ) {
-    throw quotationError;
-  }
-
-
-  const {
-    error:
-      parentProjectError,
-  } =
-    await supabase
-      .from(
-        PROJECTS_TABLE,
-      )
-      .update({
-        quotation_status:
-          "accepted",
-
-        active_quotation_id:
-          quotationId,
-
-        quoted_amount:
-          quotation.total,
-
-        status:
-          nextProjectStatus,
-
-        payment_status:
-          nextPaymentStatus,
-
-        updated_at:
-          now,
-      })
-      .eq(
-        "id",
-        projectId,
-      )
-      .eq(
-        "user_id",
-        user.uid,
-      );
-
-
-  if (
-    parentProjectError
-  ) {
-    throw parentProjectError;
+  if (error) {
+    throw error;
   }
 }
 
@@ -2040,82 +1890,17 @@ export async function rejectCustomQuotation(
   }
 
 
-  const now =
-    new Date().toISOString();
+  const { error } = await supabase.rpc(
+    "respond_custom_quotation",
+    {
+      p_project_id: projectId,
+      p_quotation_id: quotationId,
+      p_action: "reject",
+      p_reason: cleanReason,
+    },
+  );
 
-
-  const {
-    error:
-      quotationUpdateError,
-  } =
-    await supabase
-      .from(
-        QUOTATIONS_TABLE,
-      )
-      .update({
-        status:
-          "rejected",
-
-        rejection_reason:
-          cleanReason,
-
-        updated_at:
-          now,
-      })
-      .eq(
-        "id",
-        quotationId,
-      )
-      .eq(
-        "project_id",
-        projectId,
-      );
-
-
-  if (
-    quotationUpdateError
-  ) {
-    throw quotationUpdateError;
-  }
-
-
-  const {
-    error:
-      parentProjectError,
-  } =
-    await supabase
-      .from(
-        PROJECTS_TABLE,
-      )
-      .update({
-        quotation_status:
-          "rejected",
-
-        status:
-          "discussion",
-
-        payment_status:
-          "not_required",
-
-        active_quotation_id:
-          quotationId,
-
-        updated_at:
-          now,
-      })
-      .eq(
-        "id",
-        projectId,
-      )
-      .eq(
-        "user_id",
-        user.uid,
-      );
-
-
-  if (
-    parentProjectError
-  ) {
-    throw parentProjectError;
+  if (error) {
+    throw error;
   }
 }

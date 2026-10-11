@@ -1621,18 +1621,13 @@ export async function updateCustomProject(
 
   const {
     error,
-  } =
-    await supabase
-      .from(
-        PROJECTS_TABLE,
-      )
-      .update(
-        updates,
-      )
-      .eq(
-        "id",
-        cleanProjectId,
-      );
+  } = await supabase.rpc(
+    "update_custom_project",
+    {
+      p_project_id: cleanProjectId,
+      p_updates: updates,
+    },
+  );
 
 
   if (
@@ -1894,31 +1889,21 @@ export async function createCustomProjectMessage(
    * Update project last-message preview.
    */
 
+  const messageTimestamp = new Date().toISOString();
   const {
-    error:
-      projectError,
-  } =
-    await supabase
-      .from(
-        PROJECTS_TABLE,
-      )
-      .update({
-        last_message:
-          message,
-
-        last_message_by:
-          senderType,
-
-        last_message_at:
-          new Date().toISOString(),
-
-        updated_at:
-          new Date().toISOString(),
-      })
-      .eq(
-        "id",
-        projectId,
-      );
+    error: projectError,
+  } = await supabase.rpc(
+    "update_custom_project",
+    {
+      p_project_id: projectId,
+      p_updates: {
+        last_message: message,
+        last_message_by: senderType,
+        last_message_at: messageTimestamp,
+        updated_at: messageTimestamp,
+      },
+    },
+  );
 
 
   if (
