@@ -1,10 +1,5 @@
 import { auth } from "../firebase/config";
 import { supabase } from "../lib/supabase";
-import {
-  PRIVACY_POLICY_VERSION,
-  TERMS_VERSION,
-} from "../legal/legalVersions";
-
 export interface RegistrationConsent {
   termsAccepted: boolean;
   privacyPolicyAccepted: boolean;
@@ -58,25 +53,9 @@ export async function saveRegistrationConsent(
 
   await ensureSupabaseAuthReady(cleanUid);
 
-  const now = new Date().toISOString();
-
-  const { error } = await supabase
-    .from("legal_consents")
-    .upsert(
-      {
-        firebase_uid: cleanUid,
-        terms_accepted: true,
-        privacy_policy_accepted: true,
-        necessary_data_consent: true,
-        marketing_consent: Boolean(marketingConsent),
-        terms_version: TERMS_VERSION,
-        privacy_policy_version: PRIVACY_POLICY_VERSION,
-        accepted_at: now,
-        consent_source: "registration",
-        updated_at: now,
-      },
-      { onConflict: "firebase_uid" },
-    );
+  const { error } = await supabase.rpc("record_registration_consent", {
+    p_marketing_consent: Boolean(marketingConsent),
+  });
 
   if (error) {
     console.error("Failed to save registration consent:", error);
