@@ -974,6 +974,72 @@ export default function PrintingDashboard() {
 
   /*
    * ========================================================
+   * SAVE QUOTATION
+   * ========================================================
+   */
+
+  async function handleSaveQuote(
+    order: PrintingOrder,
+    finalPrice: number,
+  ): Promise<void> {
+    if (!Number.isFinite(finalPrice) || finalPrice < 0) {
+      throw new Error("Enter a valid quotation price.");
+    }
+
+    const normalizedPrice = Math.ceil(finalPrice);
+
+    try {
+      setUpdatingId(order.id);
+      setError("");
+
+      await updatePrintingOrderAdmin(order.id, {
+        finalPrice: normalizedPrice,
+        status: "quoted",
+      });
+
+      const updatedAt = new Date().toISOString();
+
+      setOrders((current) =>
+        current.map((item) =>
+          item.id === order.id
+            ? {
+                ...item,
+                finalPrice: normalizedPrice,
+                status: "quoted",
+                updatedAt,
+              }
+            : item,
+        ),
+      );
+
+      setSelectedOrder((current) =>
+        current && current.id === order.id
+          ? {
+              ...current,
+              finalPrice: normalizedPrice,
+              status: "quoted",
+              updatedAt,
+            }
+          : current,
+      );
+    } catch (updateError) {
+      console.error("Failed to save printing quotation:", updateError);
+
+      const message =
+        updateError instanceof Error
+          ? updateError.message
+          : "Unable to save the quotation.";
+
+      setError(message);
+      throw new Error(message);
+    } finally {
+      setUpdatingId(null);
+    }
+  }
+
+
+  /*
+   * ========================================================
    * OPEN FILE
    * ========================================================
    */
@@ -1497,6 +1563,10 @@ export default function PrintingDashboard() {
             handleStatusChange
           }
 
+          onSaveQuote={
+            handleSaveQuote
+          }
+
           onDownload={
             openStorageFile
           }
@@ -1960,6 +2030,7 @@ function PrintingOrderModal({
   updating,
   onClose,
   onStatusChange,
+  onSaveQuote,
   onDownload,
 }: {
   order:
@@ -1980,6 +2051,12 @@ function PrintingOrderModal({
         PrintingOrderStatus,
     ) => Promise<void>;
 
+  onSaveQuote:
+    (
+      order: PrintingOrder,
+      finalPrice: number,
+    ) => Promise<void>;
+
   onDownload:
     (
       order:
@@ -1992,6 +2069,40 @@ function PrintingOrderModal({
       order.status,
     );
 
+  const [quotePrice, setQuotePrice] = useState(
+    order.finalPrice == null ? "" : String(order.finalPrice),
+  );
+  const [quoteError, setQuoteError] = useState("");
+  const [quoteSuccess, setQuoteSuccess] = useState("");
+
+  async function saveQuote() {
+    const price = Number(quotePrice);
+
+    if (
+      !quotePrice.trim() ||
+      !Number.isFinite(price) ||
+      price < 0
+    ) {
+      setQuoteError("Enter a valid quotation price.");
+      setQuoteSuccess("");
+      return;
+    }
+
+    try {
+      setQuoteError("");
+      setQuoteSuccess("");
+      await onSaveQuote(order, price);
+      setQuoteSuccess(
+        "Quotation saved successfully. Payment remains unpaid until verified.",
+      );
+    } catch (saveError) {
+      setQuoteError(
+        saveError instanceof Error
+          ? saveError.message
+          : "Unable to save the quotation.",
+      );
+    }
+  }
 
   const dimensions =
     (
@@ -2331,6 +2442,74 @@ function PrintingOrderModal({
                 }
               />
 
+              <DetailRow
+                label="Final quotation"
+                value={
+                  order.finalPrice !== undefined &&
+                  order.finalPrice !== null
+                    ? `₹${numberValue(
+                        order.finalPrice,
+                      ).toLocaleString("en-IN")}`
+                    : "Not quoted yet"
+                }
+              />
+
+              <div className="mt-4 space-y-3 border-t border-neutral-100 pt-4">
+                <label
+                  htmlFor={`printing-final-price-${order.id}`}
+                  className="block text-xs font-bold text-neutral-600"
+                >
+                  Final quotation price (₹)
+                </label>
+
+                <div className="flex flex-col gap-3 sm:flex-row">
+                  <input
+                    id={`printing-final-price-${order.id}`}
+                    type="number"
+                    min="0"
+                    step="1"
+                    value={quotePrice}
+                    disabled={updating}
+                    onChange={(event) => {
+                      setQuotePrice(event.target.value);
+                      setQuoteError("");
+                      setQuoteSuccess("");
+                    }}
+                    placeholder="Enter final price"
+                    className="min-w-0 flex-1 rounded-xl border border-neutral-200 px-4 py-3 text-sm font-bold text-neutral-800 outline-none focus:border-[#D4AF37]"
+                  />
+
+                  <button
+                    type="button"
+                    disabled={updating || !quotePrice.trim()}
+                    onClick={() => void saveQuote()}
+                    className="rounded-xl bg-[#D4AF37] px-5 py-3 text-sm font-black text-neutral-950 transition hover:bg-[#c6a12f] disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    {updating
+                      ? "Saving..."
+                      : status === "quoted"
+                        ? "Update Quote"
+                        : "Save Quote"}
+                  </button>
+                </div>
+
+                {quoteError && (
+                  <p role="alert" className="text-sm text-red-600">
+                    {quoteError}
+                  </p>
+                )}
+
+                {quoteSuccess && (
+                  <p role="status" className="text-sm text-green-700">
+                    {quoteSuccess}
+                  </p>
+                )}
+
+                <p className="text-xs leading-5 text-neutral-500">
+                  Saving the quotation changes the order status to Quoted.
+                  It does not mark the payment as paid.
+                </p>
+              </div>
 
               <DetailRow
                 label="Payment"
