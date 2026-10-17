@@ -1,6 +1,6 @@
 import {
   getAllPrintingOrders,
-  updatePrintingOrder,
+  updatePrintingOrderAdmin,
 } from "./printing.service";
 
 import type {
@@ -31,13 +31,12 @@ export async function updatePrintingQuote(
     throw new Error("Enter a valid final price.");
   }
 
-  await updatePrintingOrder(orderId, {
+  await updatePrintingOrderAdmin(orderId, {
     material: values.material,
     finish: values.finish,
     finalPrice: Math.ceil(values.finalPrice),
     adminNotes: values.adminNotes.trim(),
     status: "quoted",
-    paymentStatus: "unpaid",
   });
 }
 
@@ -49,5 +48,5 @@ export async function updatePrintingStatus(
     throw new Error("Printing order ID is required.");
   }
 
-  await updatePrintingOrder(orderId, { status });
+  await updatePrintingOrderAdmin(orderId, { status });
 }

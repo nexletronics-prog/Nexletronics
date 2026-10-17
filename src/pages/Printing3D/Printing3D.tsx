@@ -33,7 +33,7 @@ import {
   createPrintingOrder,
   defaultPrintingSettings,
   subscribePrintingSettings,
-  updatePrintingOrder,
+  completePrintingOrderUpload,
 } from "../../services/printing.service";
 
 import {
@@ -794,18 +794,10 @@ export default function Printing3D() {
        * ----------------------------------------------------
        */
 
-      await updatePrintingOrder(
+      await completePrintingOrderUpload(
         orderId,
-        {
-          storagePath:
-            uploaded.path,
-
-          originalFileName:
-            uploaded.fileName,
-
-          status:
-            "pending",
-        },
+        uploaded.path,
+        uploaded.fileName,
       );
 
 

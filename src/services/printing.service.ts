@@ -423,15 +423,15 @@ export async function createPrintingOrder(
   const id = createPrintingOrderId();
   const row = mapOrderToRow(order, id);
 
-  const { error } = await supabase
-    .from(PRINTING_ORDERS_TABLE)
-    .insert(row);
+  const { data, error } = await supabase.rpc("create_printing_order", {
+    p_order: row,
+  });
 
   if (error) {
     throw new Error(error.message);
   }
 
-  return id;
+  return typeof data === "string" && data.trim() ? data : id;
 }
 
 export async function getAllPrintingOrders(): Promise<PrintingOrder[]> {
@@ -534,7 +534,30 @@ export function subscribePrintingOrders(
   };
 }
 
-export async function updatePrintingOrder(
+export async function completePrintingOrderUpload(
+  id: string,
+  storagePath: string,
+  originalFileName: string,
+): Promise<void> {
+  if (!id.trim()) {
+    throw new Error("Printing order ID is required.");
+  }
+  if (!storagePath.trim() || !originalFileName.trim()) {
+    throw new Error("A valid uploaded STL path and filename are required.");
+  }
+
+  const { error } = await supabase.rpc("complete_printing_order_upload", {
+    p_order_id: id.trim(),
+    p_storage_path: storagePath.trim(),
+    p_original_file_name: originalFileName.trim(),
+  });
+
+  if (error) {
+    throw new Error(error.message);
+  }
+}
+
+export async function updatePrintingOrderAdmin(
   id: string,
   data: Partial<Omit<PrintingOrder, "id">>,
 ): Promise<void> {
@@ -543,33 +566,21 @@ export async function updatePrintingOrder(
   }
 
   const patch: Record<string, unknown> = {};
-
-  if (data.userId !== undefined) patch.user_id = data.userId;
-  if (data.customerName !== undefined) patch.customer_name = data.customerName;
-  if (data.customerEmail !== undefined) patch.customer_email = data.customerEmail;
-  if (data.originalFileName !== undefined) patch.original_file_name = data.originalFileName;
-  if (data.storagePath !== undefined) patch.storage_path = data.storagePath;
   if (data.material !== undefined) patch.material = data.material;
   if (data.finish !== undefined) patch.finish = data.finish;
-  if (data.quantity !== undefined) patch.quantity = Math.max(1, Math.round(data.quantity));
-  if (data.dimensions !== undefined) patch.dimensions = data.dimensions;
-  if (data.volumeCm3 !== undefined) patch.volume_cm3 = data.volumeCm3 ?? null;
-  if (data.estimatedWeightGrams !== undefined) patch.estimated_weight_grams = data.estimatedWeightGrams ?? null;
-  if (data.estimatedPrintTimeMinutes !== undefined) patch.estimated_print_time_minutes = data.estimatedPrintTimeMinutes ?? null;
-  if (data.estimate !== undefined) patch.estimate = data.estimate ?? null;
-  if (data.estimatedPrice !== undefined) patch.estimated_price = data.estimatedPrice;
   if (data.finalPrice !== undefined) patch.final_price = data.finalPrice ?? null;
   if (data.status !== undefined) patch.status = data.status;
-  if (data.paymentStatus !== undefined) patch.payment_status = data.paymentStatus;
   if (data.adminNotes !== undefined) patch.admin_notes = data.adminNotes ?? "";
   if (data.customerNotes !== undefined) patch.customer_notes = data.customerNotes ?? "";
 
-  patch.updated_at = new Date().toISOString();
+  if (Object.keys(patch).length === 0) {
+    throw new Error("No supported printing-order fields were provided.");
+  }
 
-  const { error } = await supabase
-    .from(PRINTING_ORDERS_TABLE)
-    .update(patch)
-    .eq("id", id);
+  const { error } = await supabase.rpc("admin_update_printing_order", {
+    p_order_id: id.trim(),
+    p_updates: patch,
+  });
 
   if (error) {
     throw new Error(error.message);

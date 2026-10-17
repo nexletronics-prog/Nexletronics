@@ -23,7 +23,7 @@ import {
 
 import {
   getAllPrintingOrders,
-  updatePrintingOrder,
+  updatePrintingOrderAdmin,
 } from "../../../services/printing.service";
 
 import {
@@ -898,7 +898,7 @@ export default function PrintingDashboard() {
       );
 
 
-      await updatePrintingOrder(
+      await updatePrintingOrderAdmin(
         order.id,
 
         {
