@@ -840,7 +840,7 @@ export default function Printing3D() {
         () => {
 
           navigate(
-            "/my-3d-printing",
+            "/3d-printing/orders",
             {
               replace:
                 true,
