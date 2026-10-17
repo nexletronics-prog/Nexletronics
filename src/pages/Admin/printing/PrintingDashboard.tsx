@@ -1031,7 +1031,7 @@ export default function PrintingDashboard() {
           : "Unable to save the quotation.";
 
       setError(message);
-      throw new Error(message);
+      throw new Error(message, { cause: updateError });
     } finally {
       setUpdatingId(null);
     }
