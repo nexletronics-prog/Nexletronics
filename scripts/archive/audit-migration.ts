@@ -1,9 +1,19 @@
-import type { VercelRequest, VercelResponse } from "@vercel/node";
+
+import type {
+  VercelRequest,
+  VercelResponse,
+} from "@vercel/node";
+
 import { createClient } from "@supabase/supabase-js";
-import { adminAuth, adminDb } from "../_lib/firebase-admin.mjs";
+
+import {
+  adminAuth,
+  adminDb,
+} from "../../api/_lib/firebase-admin.mjs";
 
 const supabaseUrl = process.env.VITE_SUPABASE_URL;
-const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+const serviceRoleKey =
+  process.env.SUPABASE_SERVICE_ROLE_KEY;
 
 function isAllowlistedAdmin(uid: string): boolean {
   return (process.env.NEXLETRONICS_ADMIN_UIDS ?? "")
@@ -32,10 +42,13 @@ export default async function handler(
 
   try {
     if (!supabaseUrl || !serviceRoleKey) {
-      throw new Error("Missing server-side Supabase configuration.");
+      throw new Error(
+        "Missing server-side Supabase configuration.",
+      );
     }
 
     const authorization = req.headers.authorization;
+
     if (!authorization?.startsWith("Bearer ")) {
       return res.status(401).json({
         success: false,
@@ -47,35 +60,53 @@ export default async function handler(
       authorization.slice(7).trim(),
     );
 
-    if (decoded.is_admin !== true && !isAllowlistedAdmin(decoded.uid)) {
+    if (
+      decoded.is_admin !== true &&
+      !isAllowlistedAdmin(decoded.uid)
+    ) {
       return res.status(403).json({
         success: false,
         error: "Administrator access required.",
       });
     }
 
-    const supabaseAdmin = createClient(supabaseUrl, serviceRoleKey, {
-      auth: { autoRefreshToken: false, persistSession: false },
-    });
+    const supabaseAdmin = createClient(
+      supabaseUrl,
+      serviceRoleKey,
+      {
+        auth: {
+          autoRefreshToken: false,
+          persistSession: false,
+        },
+      },
+    );
 
-    // Keep this helper scoped to the configured client so TypeScript preserves
-    // createClient's inferred SupabaseClient generics instead of using
-    // ReturnType<typeof createClient>, which erases them incompatibly.
     const countSupabaseTable = async (
       table: string,
-    ): Promise<{ count: number | null; error?: string }> => {
+    ): Promise<{
+      count: number | null;
+      error?: string;
+    }> => {
       const { count, error } = await supabaseAdmin
         .from(table)
-        .select("*", { count: "exact", head: true });
+        .select("*", {
+          count: "exact",
+          head: true,
+        });
 
       if (error) {
-        return { count: null, error: error.message };
+        return {
+          count: null,
+          error: error.message,
+        };
       }
 
-      return { count: count ?? 0 };
+      return {
+        count: count ?? 0,
+      };
     };
 
-    // Source snapshots are read-only; this endpoint never writes to either database.
+    // Read-only Firestore snapshots.
     const [
       usersSnapshot,
       ordersSnapshot,
@@ -96,48 +127,84 @@ export default async function handler(
       adminDb.collection("services").get(),
       adminDb.collection("customPortfolio").get(),
       adminDb.collection("customProjects").get(),
-      adminDb.collection("siteSettings").doc("homepage").get(),
-      adminDb.collection("siteSettings").doc("global").get(),
-      adminDb.collection("siteSettings").doc("homepage3DModel").get(),
-      adminDb.collection("customShowcaseSettings").doc("default").get(),
+      adminDb
+        .collection("siteSettings")
+        .doc("homepage")
+        .get(),
+      adminDb
+        .collection("siteSettings")
+        .doc("global")
+        .get(),
+      adminDb
+        .collection("siteSettings")
+        .doc("homepage3DModel")
+        .get(),
+      adminDb
+        .collection("customShowcaseSettings")
+        .doc("default")
+        .get(),
     ]);
 
-    const usersWithLegalConsent = usersSnapshot.docs.filter((document) => {
-      const data = document.data();
-      return data.legal !== null && typeof data.legal === "object";
-    }).length;
+    const usersWithLegalConsent =
+      usersSnapshot.docs.filter((document) => {
+        const data = document.data();
 
-    const embeddedOrderItems = ordersSnapshot.docs.reduce(
-      (total, document) => total + embeddedArrayLength(document.data().items),
-      0,
-    );
+        return (
+          data.legal !== null &&
+          typeof data.legal === "object"
+        );
+      }).length;
+
+    const embeddedOrderItems =
+      ordersSnapshot.docs.reduce(
+        (total, document) =>
+          total +
+          embeddedArrayLength(
+            document.data().items,
+          ),
+        0,
+      );
 
     let legacyQuotations = 0;
     let legacyQuotationItems = 0;
-    const projectSubcollections: Record<string, number> = {};
 
-    // Discover and count all subcollections per legacy project so that messages,
-    // activities, and other legacy nested data are not silently assumed absent.
+    const projectSubcollections: Record<
+      string,
+      number
+    > = {};
+
+    // Count legacy project subcollections without modifying them.
     await Promise.all(
-      customProjectsSnapshot.docs.map(async (projectDocument) => {
-        const collections = await projectDocument.ref.listCollections();
-        await Promise.all(
-          collections.map(async (collection) => {
-            const snapshot = await collection.get();
-            projectSubcollections[collection.id] =
-              (projectSubcollections[collection.id] ?? 0) + snapshot.size;
+      customProjectsSnapshot.docs.map(
+        async (projectDocument) => {
+          const collections =
+            await projectDocument.ref.listCollections();
 
-            if (collection.id === "quotations") {
-              legacyQuotations += snapshot.size;
-              legacyQuotationItems += snapshot.docs.reduce(
-                (total, quotationDocument) =>
-                  total + embeddedArrayLength(quotationDocument.data().items),
-                0,
-              );
-            }
-          }),
-        );
-      }),
+          await Promise.all(
+            collections.map(async (collection) => {
+              const snapshot = await collection.get();
+
+              projectSubcollections[collection.id] =
+                (projectSubcollections[collection.id] ??
+                  0) + snapshot.size;
+
+              if (collection.id === "quotations") {
+                legacyQuotations += snapshot.size;
+
+                legacyQuotationItems +=
+                  snapshot.docs.reduce(
+                    (total, quotationDocument) =>
+                      total +
+                      embeddedArrayLength(
+                        quotationDocument.data().items,
+                      ),
+                    0,
+                  );
+              }
+            }),
+          );
+        },
+      ),
     );
 
     const destinationTables = [
@@ -177,38 +244,57 @@ export default async function handler(
       success: true,
       readOnly: true,
       generatedAt: new Date().toISOString(),
+
       firestore: {
         users: usersSnapshot.size,
         usersWithLegalConsent,
         orders: ordersSnapshot.size,
         embeddedOrderItems,
-        threeDPrintOrders: printingOrdersSnapshot.size,
+        threeDPrintOrders:
+          printingOrdersSnapshot.size,
         contacts: contactsSnapshot.size,
         services: servicesSnapshot.size,
         customPortfolio: portfolioSnapshot.size,
         customProjects: customProjectsSnapshot.size,
-        customProjectQuotations: legacyQuotations,
-        embeddedCustomQuotationItems: legacyQuotationItems,
-        customProjectSubcollections: projectSubcollections,
+        customProjectQuotations:
+          legacyQuotations,
+        embeddedCustomQuotationItems:
+          legacyQuotationItems,
+        customProjectSubcollections:
+          projectSubcollections,
+
         settingsDocuments: {
           homepage: homepageSettingsSnapshot.exists,
           global: globalSettingsSnapshot.exists,
-          homepage3DModel: homepage3DSettingsSnapshot.exists,
-          customShowcaseDefault: showcaseSettingsSnapshot.exists,
+          homepage3DModel:
+            homepage3DSettingsSnapshot.exists,
+          customShowcaseDefault:
+            showcaseSettingsSnapshot.exists,
         },
       },
-      supabase: Object.fromEntries(destinationCounts),
+
+      supabase: Object.fromEntries(
+        destinationCounts,
+      ),
+
       notes: [
         "This endpoint is read-only and does not migrate or modify records.",
         "Counts help identify possible gaps but do not prove record-by-record equivalence.",
-        "The currently inspected repository has migration endpoints for users, orders, printing, contacts, services, settings, showcase, and quotations; no equivalent product migration endpoint was found.",
+        "The inspected repository has migration endpoints for users, orders, printing, contacts, services, settings, showcase, and quotations; no equivalent product migration endpoint was found.",
       ],
     });
   } catch (error) {
-    console.error("Migration audit failed:", error);
+    console.error(
+      "Migration audit failed:",
+      error,
+    );
+
     return res.status(500).json({
       success: false,
-      error: error instanceof Error ? error.message : "Migration audit failed.",
+      error:
+        error instanceof Error
+          ? error.message
+          : "Migration audit failed.",
     });
   }
 }
