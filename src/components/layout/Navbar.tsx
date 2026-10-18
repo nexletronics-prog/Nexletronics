@@ -361,6 +361,18 @@ export function Navbar() {
 
               </NavLink>
 
+              <NavLink
+                to="/3d-printing/orders"
+                className={({ isActive }) =>
+                  `text-sm font-semibold transition ${
+                    isActive
+                      ? "text-[#D4AF37]"
+                      : "text-neutral-700 hover:text-[#D4AF37]"
+                  }`
+                }
+              >
+                My Printing Orders
+              </NavLink>
 
               <button
                 type="button"
@@ -549,6 +561,13 @@ export function Navbar() {
 
                 </Link>
 
+                <Link
+                  to="/3d-printing/orders"
+                  onClick={() => setMobileOpen(false)}
+                  className="rounded-xl px-4 py-3 text-sm font-semibold text-neutral-700 transition hover:bg-neutral-50"
+                >
+                  My Printing Orders
+                </Link>
 
                 <button
                   type="button"

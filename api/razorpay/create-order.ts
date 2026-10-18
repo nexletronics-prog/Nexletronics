@@ -38,7 +38,12 @@ interface AddressInput {
 
 
 interface CreateOrderBody {
-  items: CartItemInput[];
+  items?: CartItemInput[];
+
+  /** Optional path for paying an already-issued 3D-printing quotation. */
+  paymentType?: "product" | "printing";
+
+  printingOrderId?: string;
 
   customer?: {
     name?: string;
@@ -284,6 +289,329 @@ export async function POST(
       (
         await request.json()
       ) as CreateOrderBody;
+
+
+    /*
+     * ======================================================
+     * PRINTING QUOTATION PAYMENT
+     * ======================================================
+     *
+     * A printing payment is linked to an existing printing
+     * order and its server-saved final_price. The browser
+     * never supplies the amount. This branch intentionally
+     * bypasses product-cart validation and stock reservation.
+     *
+     * Requires payment_sessions.payment_type and
+     * payment_sessions.printing_order_id to exist.
+     */
+    if (body?.paymentType === "printing") {
+      const printingOrderId = cleanString(
+        body.printingOrderId,
+      );
+
+      if (!printingOrderId || printingOrderId.length > 128) {
+        return json(
+          {
+            success: false,
+            error: "A valid printing order ID is required.",
+          },
+          400,
+        );
+      }
+
+      const {
+        data: printingOrder,
+        error: printingOrderError,
+      } = await supabase
+        .from("printing_orders")
+        .select(
+          "id, user_id, customer_name, customer_email, final_price, status, payment_status",
+        )
+        .eq("id", printingOrderId)
+        .maybeSingle();
+
+      if (printingOrderError) {
+        throw printingOrderError;
+      }
+
+      if (!printingOrder) {
+        return json(
+          {
+            success: false,
+            error: "Printing order not found.",
+          },
+          404,
+        );
+      }
+
+      if (printingOrder.user_id !== user.uid) {
+        return json(
+          {
+            success: false,
+            error: "You cannot pay for another customer's printing order.",
+          },
+          403,
+        );
+      }
+
+      if (
+        printingOrder.payment_status === "paid" ||
+        printingOrder.status === "paid" ||
+        printingOrder.status === "completed"
+      ) {
+        return json(
+          {
+            success: false,
+            error: "This printing order is already paid or completed.",
+          },
+          409,
+        );
+      }
+
+      if (
+        !["quoted", "payment_pending"].includes(
+          String(printingOrder.status),
+        ) ||
+        !["unpaid", "pending", "failed"].includes(
+          String(printingOrder.payment_status),
+        )
+      ) {
+        return json(
+          {
+            success: false,
+            error: "This printing order is not currently payable.",
+          },
+          409,
+        );
+      }
+
+      // A captured payment that is awaiting reconciliation must block another
+      // checkout for this quote, otherwise the customer could be charged twice.
+      const {
+        data: previousPrintingSessions,
+        error: previousPrintingSessionsError,
+      } = await supabase
+        .from("payment_sessions")
+        .select("razorpay_order_id, status, payment_webhook_status, razorpay_payment_status")
+        .eq("payment_type", "printing")
+        .eq("printing_order_id", printingOrder.id);
+
+      if (previousPrintingSessionsError) {
+        throw previousPrintingSessionsError;
+      }
+
+      const capturedOrReconcilingSession = (previousPrintingSessions ?? []).find(
+        (session: {
+          status?: string | null;
+          payment_webhook_status?: string | null;
+          razorpay_payment_status?: string | null;
+        }) =>
+          ["paid", "verified"].includes(String(session.status)) ||
+          session.payment_webhook_status === "reconciliation_required" ||
+          session.razorpay_payment_status === "captured",
+      );
+
+      if (capturedOrReconcilingSession) {
+        return json(
+          {
+            success: false,
+            error: "A previous payment for this printing quotation was captured or needs reconciliation. Please contact support before retrying to avoid a duplicate charge.",
+            reconciliationRequired: true,
+          },
+          409,
+        );
+      }
+
+      const finalPrice = Number(printingOrder.final_price);
+
+      if (!Number.isFinite(finalPrice) || finalPrice <= 0) {
+        return json(
+          {
+            success: false,
+            error: "The final printing quotation is invalid.",
+          },
+          409,
+        );
+      }
+
+      const amountInPaise = Math.round(
+        (finalPrice + Number.EPSILON) * 100,
+      );
+
+      if (!Number.isSafeInteger(amountInPaise) || amountInPaise <= 0) {
+        return json(
+          {
+            success: false,
+            error: "The printing payment amount is invalid.",
+          },
+          400,
+        );
+      }
+
+      const customerName =
+        cleanString(printingOrder.customer_name) ||
+        cleanString(user.name);
+      const customerEmail = (
+        cleanString(printingOrder.customer_email) ||
+        cleanString(user.email)
+      ).toLowerCase();
+
+      if (!customerName || !customerEmail) {
+        return json(
+          {
+            success: false,
+            error: "Printing customer name and email are required.",
+          },
+          400,
+        );
+      }
+
+      // Reuse a still-created session only when user, quote, and amount match.
+      const {
+        data: existingSession,
+        error: existingSessionError,
+      } = await supabase
+        .from("payment_sessions")
+        .select("razorpay_order_id, amount_in_paise, currency")
+        .eq("payment_type", "printing")
+        .eq("printing_order_id", printingOrder.id)
+        .eq("user_id", user.uid)
+        .eq("status", "created")
+        .eq("amount_in_paise", amountInPaise)
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      if (existingSessionError) {
+        throw existingSessionError;
+      }
+
+      if (existingSession) {
+        return json({
+          success: true,
+          paymentType: "printing",
+          printingOrderId: printingOrder.id,
+          orderId: existingSession.razorpay_order_id,
+          keyId,
+          amount: Number(existingSession.amount_in_paise),
+          currency: existingSession.currency || "INR",
+          total: finalPrice,
+        });
+      }
+
+      const receipt = `NXP-${Date.now()}-${user.uid.slice(0, 8)}`;
+      const authorization = Buffer.from(
+        `${keyId}:${keySecret}`,
+      ).toString("base64");
+
+      const razorpayResponse = await fetch(
+        "https://api.razorpay.com/v1/orders",
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Basic ${authorization}`,
+          },
+          body: JSON.stringify({
+            amount: amountInPaise,
+            currency: "INR",
+            receipt,
+            payment_capture: 1,
+            notes: {
+              paymentType: "printing",
+              printingOrderId: printingOrder.id,
+              firebaseUid: user.uid,
+            },
+          }),
+        },
+      );
+
+      const razorpayData = await razorpayResponse.json();
+
+      if (!razorpayResponse.ok) {
+        console.error(
+          "[create-order] Printing Razorpay error:",
+          razorpayData,
+        );
+
+        return json(
+          {
+            success: false,
+            error: "Unable to create printing payment.",
+          },
+          502,
+        );
+      }
+
+      const razorpayOrderId = cleanString(razorpayData?.id);
+
+      if (!razorpayOrderId) {
+        return json(
+          {
+            success: false,
+            error: "Razorpay did not return an order ID.",
+          },
+          502,
+        );
+      }
+
+      const now = new Date().toISOString();
+
+      const { error: paymentSessionError } = await supabase
+        .from("payment_sessions")
+        .insert({
+          razorpay_order_id: razorpayOrderId,
+          receipt,
+          user_id: user.uid,
+          user_email: customerEmail,
+          customer: {
+            name: customerName,
+            email: customerEmail,
+          },
+          items: [],
+          shipping_address: null,
+          billing_address: null,
+          billing_address_same_as_shipping: true,
+          subtotal: finalPrice,
+          shipping_amount: 0,
+          tax_amount: 0,
+          discount_amount: 0,
+          total: finalPrice,
+          amount_in_paise: amountInPaise,
+          currency: "INR",
+          status: "created",
+          payment_type: "printing",
+          printing_order_id: printingOrder.id,
+          created_at: now,
+          updated_at: now,
+        });
+
+      if (paymentSessionError) {
+        console.error(
+          "[create-order] Failed to save printing payment session:",
+          paymentSessionError,
+        );
+
+        return json(
+          {
+            success: false,
+            error: "Unable to initialize printing payment session.",
+          },
+          500,
+        );
+      }
+
+      return json({
+        success: true,
+        paymentType: "printing",
+        printingOrderId: printingOrder.id,
+        orderId: razorpayOrderId,
+        keyId,
+        amount: amountInPaise,
+        currency: "INR",
+        total: finalPrice,
+      });
+    }
 
 
     if (
