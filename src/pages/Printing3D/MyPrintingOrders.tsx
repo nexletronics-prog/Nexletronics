@@ -34,6 +34,107 @@ import type {
 } from "../../types/printing";
 
 
+interface PrintingRazorpayCreateOrderResponse {
+  success?: boolean;
+  paymentType?: string;
+  printingOrderId?: string;
+  orderId?: string;
+  keyId?: string;
+  amount?: number;
+  currency?: string;
+  error?: string;
+}
+
+interface PrintingRazorpayVerifyResponse {
+  success?: boolean;
+  verified?: boolean;
+  paymentType?: string;
+  printingOrderId?: string;
+  orderId?: string;
+  paymentStatus?: string;
+  error?: string;
+}
+
+interface PrintingRazorpayPaymentResponse {
+  razorpay_payment_id: string;
+  razorpay_order_id: string;
+  razorpay_signature: string;
+}
+
+interface PrintingRazorpayOptions {
+  key: string;
+  amount: number;
+  currency: string;
+  name: string;
+  description: string;
+  order_id: string;
+  prefill?: {
+    name?: string;
+    email?: string;
+    contact?: string;
+  };
+  notes?: Record<string, string>;
+  theme?: {
+    color?: string;
+  };
+  handler: (
+    response: PrintingRazorpayPaymentResponse,
+  ) => void | Promise<void>;
+  modal?: {
+    ondismiss?: () => void;
+    confirm_close?: boolean;
+  };
+  retry?: {
+    enabled: boolean;
+  };
+}
+
+interface PrintingRazorpayInstance {
+  open: () => void;
+  on?: (
+    event: string,
+    callback: (response: unknown) => void,
+  ) => void;
+}
+
+type PrintingRazorpayConstructor = new (
+  options: PrintingRazorpayOptions,
+) => PrintingRazorpayInstance;
+
+function loadPrintingRazorpayScript(): Promise<boolean> {
+  return new Promise((resolve) => {
+    if (window.Razorpay) {
+      resolve(true);
+      return;
+    }
+
+    const existingScript = document.querySelector<HTMLScriptElement>(
+      'script[src="https://checkout.razorpay.com/v1/checkout.js"]',
+    );
+
+    if (existingScript) {
+      existingScript.addEventListener(
+        "load",
+        () => resolve(Boolean(window.Razorpay)),
+        { once: true },
+      );
+      existingScript.addEventListener(
+        "error",
+        () => resolve(false),
+        { once: true },
+      );
+      return;
+    }
+
+    const script = document.createElement("script");
+    script.src = "https://checkout.razorpay.com/v1/checkout.js";
+    script.async = true;
+    script.onload = () => resolve(Boolean(window.Razorpay));
+    script.onerror = () => resolve(false);
+    document.body.appendChild(script);
+  });
+}
+
 /*
  * ==========================================================
  * FIRESTORE COLLECTION
@@ -612,6 +713,174 @@ function PrintingOrderCard({
 }: {
   order: PrintingOrder;
 }) {
+  const { user } = useAuth();
+  const [paying, setPaying] = useState(false);
+  const [payError, setPayError] = useState("");
+
+  async function handleAcceptAndPay(): Promise<void> {
+    if (paying) return;
+
+    if (!user) {
+      setPayError("Please sign in before paying for your quote.");
+      return;
+    }
+
+    setPaying(true);
+    setPayError("");
+
+    try {
+      const scriptLoaded = await loadPrintingRazorpayScript();
+      const RazorpayConstructor = window.Razorpay as unknown as
+        | PrintingRazorpayConstructor
+        | undefined;
+
+      if (!scriptLoaded || !RazorpayConstructor) {
+        throw new Error(
+          "Unable to load Razorpay Checkout. Check your internet connection and try again.",
+        );
+      }
+
+      const idToken = await user.getIdToken();
+      const createResponse = await fetch("/api/razorpay/create-order", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${idToken}`,
+        },
+        body: JSON.stringify({
+          paymentType: "printing",
+          printingOrderId: order.id,
+        }),
+      });
+
+      const created = (await createResponse.json()) as
+        PrintingRazorpayCreateOrderResponse;
+
+      if (
+        !createResponse.ok ||
+        created.success !== true ||
+        created.paymentType !== "printing" ||
+        created.printingOrderId !== order.id ||
+        typeof created.orderId !== "string" ||
+        !created.orderId ||
+        typeof created.keyId !== "string" ||
+        !created.keyId ||
+        !Number.isSafeInteger(created.amount) ||
+        typeof created.currency !== "string" ||
+        !created.currency
+      ) {
+        throw new Error(
+          created.error || "Unable to initialize payment for this printing quote.",
+        );
+      }
+
+      const checkout = new RazorpayConstructor({
+        key: created.keyId,
+        amount: created.amount as number,
+        currency: created.currency,
+        name: "Nexletronics",
+        description: `3D printing quote #${order.id.slice(0, 8)}`,
+        order_id: created.orderId,
+        prefill: {
+          name: order.customerName,
+          email: order.customerEmail,
+        },
+        notes: {
+          source: "nexletronics-printing-quote",
+          printingOrderId: order.id,
+        },
+        theme: {
+          color: "#D4AF37",
+        },
+        retry: {
+          enabled: true,
+        },
+        modal: {
+          confirm_close: true,
+          ondismiss: () => {
+            setPaying(false);
+          },
+        },
+        handler: async (paymentResponse) => {
+          try {
+            setPayError("");
+            const verificationToken = await user.getIdToken();
+            const verifyResponse = await fetch(
+              "/api/razorpay/verify-payment",
+              {
+                method: "POST",
+                headers: {
+                  "Content-Type": "application/json",
+                  Authorization: `Bearer ${verificationToken}`,
+                },
+                body: JSON.stringify({
+                  razorpay_order_id: paymentResponse.razorpay_order_id,
+                  razorpay_payment_id: paymentResponse.razorpay_payment_id,
+                  razorpay_signature: paymentResponse.razorpay_signature,
+                }),
+              },
+            );
+
+            const verified = (await verifyResponse.json()) as
+              PrintingRazorpayVerifyResponse;
+
+            if (
+              !verifyResponse.ok ||
+              verified.success !== true ||
+              verified.verified !== true ||
+              verified.paymentType !== "printing" ||
+              verified.printingOrderId !== order.id ||
+              verified.paymentStatus !== "paid"
+            ) {
+              throw new Error(
+                verified.error ||
+                  "Payment could not be verified against this printing quote.",
+              );
+            }
+
+            // The server has confirmed capture and updated printing_orders.
+            // Reload to fetch the authoritative status even if Realtime is delayed.
+            window.location.reload();
+          } catch (verificationError) {
+            console.error(
+              "[MyPrintingOrders] Razorpay verification failed:",
+              verificationError,
+            );
+            setPayError(
+              verificationError instanceof Error
+                ? `${verificationError.message} If money was deducted, do not pay again until the order status is checked.`
+                : "Payment verification could not be completed. If money was deducted, do not pay again until the order status is checked.",
+            );
+            setPaying(false);
+          }
+        },
+      });
+
+      checkout.on?.("payment.failed", (failure) => {
+        const details = failure as {
+          error?: { description?: string };
+        };
+        setPayError(
+          details.error?.description ||
+            "Payment failed. Your printing request has not been confirmed as paid.",
+        );
+        setPaying(false);
+      });
+
+      checkout.open();
+    } catch (paymentError) {
+      console.error(
+        "[MyPrintingOrders] Could not start quote payment:",
+        paymentError,
+      );
+      setPayError(
+        paymentError instanceof Error
+          ? paymentError.message
+          : "Unable to start payment. Please try again.",
+      );
+      setPaying(false);
+    }
+  }
 
   const hasFinalPrice =
     typeof order.finalPrice ===
@@ -903,26 +1172,36 @@ function PrintingOrderCard({
                   </p>
 
 
-                  {canPay && (
+                  {payError && (
+                    <p
+                      role="alert"
+                      className="mt-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm leading-5 font-medium text-red-700"
+                    >
+                      {payError}
+                    </p>
+                  )}
 
+                  {canPay && (
                     <button
                       type="button"
-                      onClick={() =>
-                        window.alert(
-                          "The payment gateway will be connected to this button next.",
-                        )
-                      }
-                      className="mt-5 flex w-full items-center justify-center gap-2 rounded-full bg-[#D4AF37] px-5 py-3.5 text-sm font-black text-white transition hover:bg-[#b99622]"
+                      onClick={() => {
+                        void handleAcceptAndPay();
+                      }}
+                      disabled={paying}
+                      className="mt-5 flex w-full items-center justify-center gap-2 rounded-full bg-[#D4AF37] px-5 py-3.5 text-sm font-black text-white transition hover:bg-[#b99622] disabled:cursor-not-allowed disabled:opacity-60"
                     >
-
-                      Accept & Pay
-
-                      <ArrowRight
-                        size={16}
-                      />
-
+                      {paying ? (
+                        <>
+                          <Loader2 size={16} className="animate-spin" />
+                          Processing...
+                        </>
+                      ) : (
+                        <>
+                          Accept & Pay
+                          <ArrowRight size={16} />
+                        </>
+                      )}
                     </button>
-
                   )}
 
 
