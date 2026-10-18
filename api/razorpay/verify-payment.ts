@@ -74,7 +74,15 @@ interface PaymentSessionData {
 
   status: string;
 
+  payment_type?: "product" | "printing";
+
+  printing_order_id?: string | null;
+
   razorpay_payment_id?: string;
+
+  razorpay_signature?: string;
+
+  payment_webhook_status?: string;
 
   app_order_id?: string;
 }
@@ -232,6 +240,7 @@ async function recordCapturedPaymentForRecovery(
       razorpay_signature: razorpaySignature,
       razorpay_payment_status: paymentData.status ?? "captured",
       payment_method: paymentData.method ?? "razorpay",
+      payment_webhook_status: "reconciliation_required",
       updated_at: new Date().toISOString(),
     })
     .eq("razorpay_order_id", razorpayOrderId);
@@ -829,6 +838,241 @@ export async function POST(
         },
         409,
       );
+    }
+
+
+    /*
+     * ======================================================
+     * PRINTING QUOTATION PAYMENT
+     * ======================================================
+     *
+     * Printing quote payments must never enter product-order
+     * creation or call reserve_payment_stock(). The quote and
+     * amount are reloaded from Supabase on every verification.
+     */
+    if (paymentSession.payment_type === "printing") {
+      const printingOrderId = asString(
+        paymentSession.printing_order_id,
+      ).trim();
+
+      if (!printingOrderId) {
+        await recordCapturedPaymentForRecovery(
+          supabase, razorpayOrderId, razorpayPaymentId,
+          razorpaySignature, paymentData,
+        );
+        return json({
+          success: false, verified: true, paymentCaptured: true,
+          reconciliationRequired: true,
+          error: "Captured printing payment has no linked printing order. Support reconciliation is required.",
+        }, 409);
+      }
+
+      const {
+        data: printingOrder,
+        error: printingOrderError,
+      } = await supabase
+        .from("printing_orders")
+        .select("id, user_id, status, payment_status, final_price, paid_razorpay_order_id")
+        .eq("id", printingOrderId)
+        .maybeSingle();
+
+      if (printingOrderError) {
+        throw printingOrderError;
+      }
+
+      if (!printingOrder || printingOrder.user_id !== user.uid) {
+        await recordCapturedPaymentForRecovery(
+          supabase, razorpayOrderId, razorpayPaymentId,
+          razorpaySignature, paymentData,
+        );
+        return json({
+          success: false, verified: true, paymentCaptured: true,
+          reconciliationRequired: true,
+          error: "Captured payment could not be matched to the customer's printing order. Support reconciliation is required.",
+        }, 409);
+      }
+
+      const quotedAmountInPaise = Math.round(
+        asNumber(printingOrder.final_price) * 100,
+      );
+
+      if (
+        !Number.isSafeInteger(quotedAmountInPaise) ||
+        quotedAmountInPaise <= 0 ||
+        quotedAmountInPaise !== expectedAmount
+      ) {
+        await recordCapturedPaymentForRecovery(
+          supabase, razorpayOrderId, razorpayPaymentId,
+          razorpaySignature, paymentData,
+        );
+        return json({
+          success: false, verified: true, paymentCaptured: true,
+          reconciliationRequired: true,
+          error: "The captured payment does not match the current printing quotation. The payment was recorded for manual reconciliation.",
+        }, 409);
+      }
+
+      const alreadyPaid =
+        printingOrder.payment_status === "paid" ||
+        ["paid", "completed"].includes(String(printingOrder.status)) ||
+        Boolean(printingOrder.paid_razorpay_order_id);
+
+      if (alreadyPaid) {
+        if (
+          printingOrder.payment_status === "paid" &&
+          printingOrder.paid_razorpay_order_id === razorpayOrderId
+        ) {
+          const now = new Date().toISOString();
+          const { error: repairPrintingSessionError } = await supabase
+            .from("payment_sessions")
+            .update({
+              status: "verified",
+              razorpay_payment_id: razorpayPaymentId,
+              razorpay_signature: razorpaySignature,
+              razorpay_payment_status: paymentData.status,
+              payment_method: paymentData.method ?? "razorpay",
+              payment_webhook_status: "paid",
+              verified_at: now,
+              updated_at: now,
+            })
+            .eq("razorpay_order_id", razorpayOrderId)
+            .eq("user_id", user.uid);
+
+          if (repairPrintingSessionError) {
+            console.error(
+              "[verify-payment] Could not repair already-paid printing session:",
+              repairPrintingSessionError,
+            );
+          }
+
+          return json({
+            success: true, verified: true, paymentType: "printing",
+            printingOrderId, orderId: printingOrderId,
+            razorpayOrderId, razorpayPaymentId, paymentStatus: "paid",
+          });
+        }
+
+        await recordCapturedPaymentForRecovery(
+          supabase, razorpayOrderId, razorpayPaymentId,
+          razorpaySignature, paymentData,
+        );
+        return json({
+          success: false, verified: true, paymentCaptured: true,
+          reconciliationRequired: true,
+          error: "This printing quotation has already been paid by another payment session. The captured payment needs manual reconciliation.",
+        }, 409);
+      }
+
+      if (
+        !["quoted", "payment_pending"].includes(String(printingOrder.status)) ||
+        !["unpaid", "pending", "failed"].includes(String(printingOrder.payment_status))
+      ) {
+        await recordCapturedPaymentForRecovery(
+          supabase, razorpayOrderId, razorpayPaymentId,
+          razorpaySignature, paymentData,
+        );
+        return json({
+          success: false, verified: true, paymentCaptured: true,
+          reconciliationRequired: true,
+          error: "The printing order is no longer in a payable state. The captured payment requires manual reconciliation.",
+        }, 409);
+      }
+
+      // Persist the captured payment evidence before changing the quote.
+      const { error: capturedEvidenceError } = await supabase
+        .from("payment_sessions")
+        .update({
+          razorpay_payment_id: razorpayPaymentId,
+          razorpay_signature: razorpaySignature,
+          razorpay_payment_status: paymentData.status,
+          payment_method: paymentData.method ?? "razorpay",
+          updated_at: new Date().toISOString(),
+        })
+        .eq("razorpay_order_id", razorpayOrderId)
+        .eq("user_id", user.uid);
+
+      if (capturedEvidenceError) {
+        throw capturedEvidenceError;
+      }
+
+      const now = new Date().toISOString();
+      const {
+        data: paidPrintingOrder,
+        error: markPrintingPaidError,
+      } = await supabase
+        .from("printing_orders")
+        .update({
+          payment_status: "paid",
+          status: "paid",
+          paid_razorpay_order_id: razorpayOrderId,
+          updated_at: now,
+        })
+        .eq("id", printingOrderId)
+        .eq("user_id", user.uid)
+        .in("status", ["quoted", "payment_pending"])
+        .in("payment_status", ["unpaid", "pending", "failed"])
+        .is("paid_razorpay_order_id", null)
+        .select("id")
+        .maybeSingle();
+
+      if (markPrintingPaidError) {
+        throw markPrintingPaidError;
+      }
+
+      if (!paidPrintingOrder) {
+        const { data: latestPrintingOrder, error: latestPrintingOrderError } = await supabase
+          .from("printing_orders")
+          .select("payment_status, status, paid_razorpay_order_id")
+          .eq("id", printingOrderId)
+          .maybeSingle();
+
+        if (latestPrintingOrderError) {
+          throw latestPrintingOrderError;
+        }
+
+        if (
+          latestPrintingOrder?.payment_status !== "paid" ||
+          latestPrintingOrder?.paid_razorpay_order_id !== razorpayOrderId
+        ) {
+          await recordCapturedPaymentForRecovery(
+            supabase, razorpayOrderId, razorpayPaymentId,
+            razorpaySignature, paymentData,
+          );
+          return json({
+            success: false, verified: true, paymentCaptured: true,
+            reconciliationRequired: true,
+            error: "The printing quotation was changed or paid concurrently. The captured payment requires manual reconciliation.",
+          }, 409);
+        }
+      }
+
+      const { error: finalPrintingSessionError } = await supabase
+        .from("payment_sessions")
+        .update({
+          status: "verified",
+          razorpay_payment_id: razorpayPaymentId,
+          razorpay_signature: razorpaySignature,
+          razorpay_payment_status: paymentData.status,
+          payment_method: paymentData.method ?? "razorpay",
+          payment_webhook_status: "paid",
+          verified_at: now,
+          updated_at: now,
+        })
+        .eq("razorpay_order_id", razorpayOrderId)
+        .eq("user_id", user.uid);
+
+      if (finalPrintingSessionError) {
+        console.error(
+          "[verify-payment] Printing order was paid, but session finalization failed:",
+          finalPrintingSessionError,
+        );
+      }
+
+      return json({
+        success: true, verified: true, paymentType: "printing",
+        printingOrderId, orderId: printingOrderId,
+        razorpayOrderId, razorpayPaymentId, paymentStatus: "paid",
+      });
     }
 
 

@@ -24,6 +24,18 @@ interface PaymentSessionRow {
     | string
     | null;
 
+  payment_webhook_status?:
+    | string
+    | null;
+
+  payment_type?:
+    | string
+    | null;
+
+  printing_order_id?:
+    | string
+    | null;
+
   amount_in_paise:
     | number
     | null;
@@ -881,7 +893,7 @@ export async function POST(
           "payment_sessions",
         )
         .select(
-          "status, razorpay_payment_id, app_order_id, amount_in_paise, currency, user_id",
+          "status, razorpay_payment_id, app_order_id, payment_webhook_status, payment_type, printing_order_id, amount_in_paise, currency, user_id",
         )
         .eq(
           "razorpay_order_id",
@@ -1132,6 +1144,76 @@ export async function POST(
         "order.paid";
 
 
+    // Resolve and validate the linked quotation before declaring it paid.
+    let printingOrder: {
+      id: string;
+      user_id: string;
+      status: string;
+      payment_status: string;
+      final_price: number | string | null;
+      paid_razorpay_order_id: string | null;
+    } | null = null;
+    let printingNeedsReconciliation = false;
+
+    if (paymentSession.payment_type === "printing") {
+      const printingOrderId = getString(paymentSession.printing_order_id);
+
+      if (!printingOrderId || !paymentSession.user_id) {
+        printingNeedsReconciliation = true;
+      } else {
+        const {
+          data: linkedPrintingOrder,
+          error: linkedPrintingOrderError,
+        } = await supabase
+          .from("printing_orders")
+          .select("id, user_id, status, payment_status, final_price, paid_razorpay_order_id")
+          .eq("id", printingOrderId)
+          .maybeSingle();
+
+        if (linkedPrintingOrderError) {
+          throw linkedPrintingOrderError;
+        }
+
+        if (
+          !linkedPrintingOrder ||
+          linkedPrintingOrder.user_id !== paymentSession.user_id
+        ) {
+          printingNeedsReconciliation = true;
+        } else {
+          printingOrder = linkedPrintingOrder;
+
+          if (isPaidEvent && currentPaymentStatus === "captured") {
+            const currentQuoteInPaise = Math.round(
+              getNumber(printingOrder.final_price) * 100,
+            );
+
+            if (
+              !Number.isSafeInteger(currentQuoteInPaise) ||
+              currentQuoteInPaise <= 0 ||
+              currentQuoteInPaise !== expectedAmount
+            ) {
+              printingNeedsReconciliation = true;
+            } else if (
+              printingOrder.payment_status === "paid" ||
+              ["paid", "completed"].includes(printingOrder.status) ||
+              Boolean(printingOrder.paid_razorpay_order_id)
+            ) {
+              printingNeedsReconciliation = !(
+                printingOrder.payment_status === "paid" &&
+                printingOrder.paid_razorpay_order_id === razorpayOrderId
+              );
+            } else if (
+              !["quoted", "payment_pending"].includes(printingOrder.status) ||
+              !["unpaid", "pending", "failed"].includes(printingOrder.payment_status)
+            ) {
+              printingNeedsReconciliation = true;
+            }
+          }
+        }
+      }
+    }
+
+
     if (
       isPaidEvent &&
       currentPaymentStatus ===
@@ -1155,7 +1237,9 @@ export async function POST(
 
 
       updates.payment_webhook_status =
-        "paid";
+        paymentSession.payment_type === "printing" && printingNeedsReconciliation
+          ? "reconciliation_required"
+          : "paid";
     }
 
 
@@ -1185,8 +1269,11 @@ export async function POST(
       }
 
 
-      updates.payment_webhook_status =
-        "failed";
+      updates.payment_webhook_status = isPaymentFinal(paymentSession.status)
+        ? paymentSession.payment_webhook_status === "reconciliation_required"
+          ? "reconciliation_required"
+          : "paid"
+        : "failed";
     }
 
 
@@ -1240,7 +1327,102 @@ export async function POST(
      * ------------------------------------------------------
      */
 
-    if (
+    if (paymentSession.payment_type === "printing") {
+      const printingOrderId = getString(paymentSession.printing_order_id);
+
+      if (
+        isPaidEvent &&
+        currentPaymentStatus === "captured" &&
+        printingOrderId &&
+        printingOrder &&
+        !printingNeedsReconciliation
+      ) {
+        if (
+          printingOrder.payment_status !== "paid" ||
+          printingOrder.paid_razorpay_order_id !== razorpayOrderId
+        ) {
+          const {
+            data: newlyPaidPrintingOrder,
+            error: markPrintingOrderPaidError,
+          } = await supabase
+            .from("printing_orders")
+            .update({
+              payment_status: "paid",
+              status: "paid",
+              paid_razorpay_order_id: razorpayOrderId,
+              updated_at: now,
+            })
+            .eq("id", printingOrderId)
+            .eq("user_id", paymentSession.user_id)
+            .in("status", ["quoted", "payment_pending"])
+            .in("payment_status", ["unpaid", "pending", "failed"])
+            .is("paid_razorpay_order_id", null)
+            .select("id")
+            .maybeSingle();
+
+          if (markPrintingOrderPaidError) {
+            throw markPrintingOrderPaidError;
+          }
+
+          if (!newlyPaidPrintingOrder) {
+            const { data: latestPrintingOrder, error: latestPrintingOrderError } = await supabase
+              .from("printing_orders")
+              .select("payment_status, status, paid_razorpay_order_id")
+              .eq("id", printingOrderId)
+              .maybeSingle();
+
+            if (latestPrintingOrderError) {
+              throw latestPrintingOrderError;
+            }
+
+            if (
+              latestPrintingOrder?.payment_status !== "paid" ||
+              latestPrintingOrder?.paid_razorpay_order_id !== razorpayOrderId
+            ) {
+              printingNeedsReconciliation = true;
+            }
+          }
+        }
+
+        if (printingNeedsReconciliation) {
+          const { error: reconciliationFlagError } = await supabase
+            .from("payment_sessions")
+            .update({
+              payment_webhook_status: "reconciliation_required",
+              updated_at: new Date().toISOString(),
+            })
+            .eq("razorpay_order_id", razorpayOrderId);
+
+          if (reconciliationFlagError) {
+            throw reconciliationFlagError;
+          }
+        }
+      } else if (
+        event === "payment.failed" &&
+        printingOrder &&
+        paymentSession.user_id &&
+        printingOrder.payment_status !== "paid" &&
+        !printingOrder.paid_razorpay_order_id &&
+        !["paid", "completed"].includes(printingOrder.status)
+      ) {
+        const { error: failPrintingOrderError } = await supabase
+          .from("printing_orders")
+          .update({
+            payment_status: "failed",
+            updated_at: now,
+          })
+          .eq("id", printingOrder.id)
+          .eq("user_id", paymentSession.user_id)
+          .neq("payment_status", "paid")
+          .is("paid_razorpay_order_id", null);
+
+        if (failPrintingOrderError) {
+          throw failPrintingOrderError;
+        }
+      }
+    }
+
+    else if (
       paymentSession.app_order_id
     ) {
 
