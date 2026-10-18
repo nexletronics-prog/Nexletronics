@@ -172,6 +172,9 @@ export default function Printing3D() {
     useState(1);
 
 
+  const [customerNotes, setCustomerNotes] = useState("");
+
+
   /*
    * ========================================================
    * UI
@@ -735,7 +738,7 @@ export default function Printing3D() {
               "unpaid",
 
             customerNotes:
-              "",
+              customerNotes.trim().slice(0, 5000),
 
             adminNotes:
               "",
@@ -830,6 +833,9 @@ export default function Printing3D() {
       setQuantity(
         1,
       );
+
+
+      setCustomerNotes("");
 
 
       /*
@@ -1594,6 +1600,40 @@ export default function Printing3D() {
 
                 </div>
 
+              </div>
+
+
+              {/* =================================================
+                  CUSTOMER NOTES
+              ================================================== */}
+
+              <div className="mt-8">
+                <label
+                  htmlFor="printing-customer-notes"
+                  className="block text-xs font-black uppercase tracking-[0.16em] text-[#9b7e1d]"
+                >
+                  Notes for Nexletronics (Optional)
+                </label>
+
+                <p className="mt-2 text-sm leading-6 text-neutral-500">
+                  Share special printing requirements, tolerances, orientation,
+                  or other instructions for your model.
+                </p>
+
+                <textarea
+                  id="printing-customer-notes"
+                  value={customerNotes}
+                  onChange={(event) => setCustomerNotes(event.target.value)}
+                  maxLength={5000}
+                  rows={4}
+                  disabled={submitting}
+                  placeholder="Enter any special instructions for your 3D print..."
+                  className="mt-3 w-full resize-y rounded-2xl border border-neutral-200 bg-white px-4 py-3 text-sm leading-6 text-neutral-900 outline-none transition placeholder:text-neutral-400 focus:border-[#D4AF37] focus:ring-2 focus:ring-[#D4AF37]/20 disabled:opacity-60"
+                />
+
+                <p className="mt-1 text-right text-xs text-neutral-400">
+                  {customerNotes.length}/5000 characters
+                </p>
               </div>
 
 

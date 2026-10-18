@@ -1038,6 +1038,59 @@ export default function PrintingDashboard() {
   }
 
 
+  async function handleSaveAdminNotes(
+    order: PrintingOrder,
+    adminNotes: string,
+  ): Promise<void> {
+    const normalizedNotes = adminNotes.slice(0, 5000);
+
+    try {
+      setUpdatingId(order.id);
+      setError("");
+
+      await updatePrintingOrderAdmin(order.id, {
+        adminNotes: normalizedNotes,
+      });
+
+      const updatedAt = new Date().toISOString();
+
+      setOrders((current) =>
+        current.map((item) =>
+          item.id === order.id
+            ? {
+                ...item,
+                adminNotes: normalizedNotes,
+                updatedAt,
+              }
+            : item,
+        ),
+      );
+
+      setSelectedOrder((current) =>
+        current && current.id === order.id
+          ? {
+              ...current,
+              adminNotes: normalizedNotes,
+              updatedAt,
+            }
+          : current,
+      );
+    } catch (updateError) {
+      console.error("Failed to save admin notes:", updateError);
+
+      const message =
+        updateError instanceof Error
+          ? updateError.message
+          : "Unable to save admin notes.";
+
+      setError(message);
+      throw new Error(message, { cause: updateError });
+    } finally {
+      setUpdatingId(null);
+    }
+  }
+
+
   /*
    * ========================================================
    * OPEN FILE
@@ -1544,6 +1597,7 @@ export default function PrintingDashboard() {
       {selectedOrder && (
 
         <PrintingOrderModal
+          key={selectedOrder.id}
           order={
             selectedOrder
           }
@@ -1565,6 +1619,10 @@ export default function PrintingDashboard() {
 
           onSaveQuote={
             handleSaveQuote
+          }
+
+          onSaveAdminNotes={
+            handleSaveAdminNotes
           }
 
           onDownload={
@@ -2031,6 +2089,7 @@ function PrintingOrderModal({
   onClose,
   onStatusChange,
   onSaveQuote,
+  onSaveAdminNotes,
   onDownload,
 }: {
   order:
@@ -2057,6 +2116,12 @@ function PrintingOrderModal({
       finalPrice: number,
     ) => Promise<void>;
 
+  onSaveAdminNotes:
+    (
+      order: PrintingOrder,
+      adminNotes: string,
+    ) => Promise<void>;
+
   onDownload:
     (
       order:
@@ -2074,6 +2139,28 @@ function PrintingOrderModal({
   );
   const [quoteError, setQuoteError] = useState("");
   const [quoteSuccess, setQuoteSuccess] = useState("");
+  const [adminNotesDraft, setAdminNotesDraft] = useState(
+    order.adminNotes ?? "",
+  );
+  const [notesError, setNotesError] = useState("");
+  const [notesSuccess, setNotesSuccess] = useState("");
+
+  async function saveAdminNotes(): Promise<void> {
+    if (updating) return;
+
+    try {
+      setNotesError("");
+      setNotesSuccess("");
+      await onSaveAdminNotes(order, adminNotesDraft.slice(0, 5000));
+      setNotesSuccess("Admin notes saved successfully.");
+    } catch (saveError) {
+      setNotesError(
+        saveError instanceof Error
+          ? saveError.message
+          : "Unable to save admin notes.",
+      );
+    }
+  }
 
   async function saveQuote() {
     const price = Number(quotePrice);
@@ -2620,14 +2707,54 @@ function PrintingOrderModal({
             />
 
 
-            <NoteBox
-              title="Admin Notes"
-              value={
-                stringValue(
-                  order.adminNotes,
-                )
-              }
-            />
+            <div className="rounded-2xl border border-neutral-200 bg-white p-5">
+              <label
+                htmlFor="printing-admin-notes"
+                className="block text-xs font-black uppercase tracking-[0.14em] text-neutral-700"
+              >
+                Admin Notes
+              </label>
+
+              <p className="mt-2 text-xs leading-5 text-neutral-500">
+                Internal production notes and instructions for this request.
+              </p>
+
+              <textarea
+                id="printing-admin-notes"
+                value={adminNotesDraft}
+                onChange={(event) => setAdminNotesDraft(event.target.value)}
+                maxLength={5000}
+                rows={5}
+                disabled={updating}
+                placeholder="Enter internal notes for this printing order..."
+                className="mt-3 w-full resize-y rounded-xl border border-neutral-200 px-3 py-3 text-sm leading-6 outline-none focus:border-[#D4AF37] focus:ring-2 focus:ring-[#D4AF37]/20 disabled:opacity-60"
+              />
+
+              <p className="mt-1 text-right text-xs text-neutral-400">
+                {adminNotesDraft.length}/5000 characters
+              </p>
+
+              {notesError && (
+                <p role="alert" className="mt-3 text-sm text-red-700">
+                  {notesError}
+                </p>
+              )}
+
+              {notesSuccess && (
+                <p role="status" className="mt-3 text-sm text-green-700">
+                  {notesSuccess}
+                </p>
+              )}
+
+              <button
+                type="button"
+                onClick={() => void saveAdminNotes()}
+                disabled={updating}
+                className="mt-4 rounded-full bg-[#D4AF37] px-5 py-2.5 text-sm font-black text-white transition hover:bg-[#b99622] disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {updating ? "Saving..." : "Save Admin Notes"}
+              </button>
+            </div>
 
           </div>
 
