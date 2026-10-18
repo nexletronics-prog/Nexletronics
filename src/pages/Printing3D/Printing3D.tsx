@@ -173,6 +173,7 @@ export default function Printing3D() {
 
 
   const [customerNotes, setCustomerNotes] = useState("");
+  const [customerPhone, setCustomerPhone] = useState("");
 
 
   /*
@@ -589,6 +590,17 @@ export default function Printing3D() {
      * Validate form.
      */
 
+    const normalizedPhone = customerPhone.trim();
+    if (
+      normalizedPhone &&
+      (!/^[+()\d\s.-]{7,32}$/.test(normalizedPhone) ||
+        normalizedPhone.replace(/\D/g, "").length < 7 ||
+        normalizedPhone.replace(/\D/g, "").length > 15)
+    ) {
+      setError("Enter a valid contact phone number, or leave the field blank.");
+      return;
+    }
+
     if (
       !selectedFile
     ) {
@@ -689,6 +701,9 @@ export default function Printing3D() {
             customerEmail:
               user.email ||
               "",
+
+            customerPhone:
+              normalizedPhone.slice(0, 32),
 
             originalFileName:
               selectedFile.name,
@@ -836,6 +851,7 @@ export default function Printing3D() {
 
 
       setCustomerNotes("");
+      setCustomerPhone("");
 
 
       /*
@@ -1602,6 +1618,41 @@ export default function Printing3D() {
 
               </div>
 
+
+              {/* =================================================
+                  CUSTOMER CONTACT PHONE
+              ================================================== */}
+
+              <div className="mt-8">
+                <label
+                  htmlFor="printing-customer-phone"
+                  className="block text-xs font-black uppercase tracking-[0.16em] text-[#9b7e1d]"
+                >
+                  Contact Phone (Optional)
+                </label>
+
+                <p className="mt-2 text-sm leading-6 text-neutral-500">
+                  Add a phone number so our team can contact you about your 3D printing request.
+                </p>
+
+                <input
+                  id="printing-customer-phone"
+                  type="tel"
+                  inputMode="tel"
+                  autoComplete="tel"
+                  value={customerPhone}
+                  onChange={(event) => setCustomerPhone(event.target.value.slice(0, 32))}
+                  maxLength={32}
+                  disabled={submitting}
+                  placeholder="e.g. +91 98765 43210"
+                  aria-describedby="printing-customer-phone-help"
+                  className="mt-3 w-full rounded-2xl border border-neutral-200 bg-white px-4 py-3 text-sm text-neutral-900 outline-none transition placeholder:text-neutral-400 focus:border-[#D4AF37] focus:ring-2 focus:ring-[#D4AF37]/20 disabled:opacity-60"
+                />
+
+                <p id="printing-customer-phone-help" className="mt-1 text-xs text-neutral-400">
+                  Optional. Include your country code when possible.
+                </p>
+              </div>
 
               {/* =================================================
                   CUSTOMER NOTES

@@ -709,6 +709,12 @@ export default function PrintingDashboard() {
               )
                 .toLowerCase();
 
+            const customerPhone =
+              stringValue(
+                order.customerPhone,
+              )
+                .toLowerCase();
+
 
             const fileName =
               stringValue(
@@ -729,6 +735,9 @@ export default function PrintingDashboard() {
                 queryText,
               ) ||
               customerEmail.includes(
+                queryText,
+              ) ||
+              customerPhone.includes(
                 queryText,
               ) ||
               fileName.includes(
@@ -2317,6 +2326,20 @@ function PrintingOrderModal({
                   "—"
                 }
               />
+
+              <div className="flex items-start justify-between gap-4 border-b border-neutral-100 py-3 last:border-0">
+                <span className="text-xs font-semibold text-neutral-500">Phone</span>
+                {order.customerPhone?.trim() ? (
+                  <a
+                    href={`tel:${order.customerPhone.replace(/[^+\d]/g, "")}`}
+                    className="max-w-[65%] break-words text-right text-sm font-semibold text-[#9b7e1d] underline-offset-4 hover:underline"
+                  >
+                    {order.customerPhone}
+                  </a>
+                ) : (
+                  <span className="text-right text-sm text-neutral-400">Not provided</span>
+                )}
+              </div>
 
 
               <DetailRow

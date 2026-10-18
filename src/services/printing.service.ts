@@ -74,6 +74,7 @@ interface PrintingOrderRow {
   user_id: string;
   customer_name: string;
   customer_email: string;
+  customer_phone: string | null;
   original_file_name: string;
   storage_path: string;
   material: string;
@@ -234,6 +235,7 @@ function normalizeOrderRow(row: PrintingOrderRow): PrintingOrder {
     userId: row.user_id,
     customerName: row.customer_name || "Customer",
     customerEmail: row.customer_email || "",
+    customerPhone: row.customer_phone || "",
     originalFileName: row.original_file_name || "model.stl",
     storagePath: row.storage_path || "",
     material: row.material || "pla",
@@ -272,6 +274,7 @@ function mapOrderToRow(
     user_id: order.userId,
     customer_name: order.customerName,
     customer_email: order.customerEmail,
+    customer_phone: order.customerPhone?.trim().slice(0, 32) || null,
     original_file_name: order.originalFileName,
     storage_path: order.storagePath,
     material: order.material,

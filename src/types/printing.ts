@@ -136,6 +136,8 @@ export interface PrintingOrder {
 
   customerEmail: string;
 
+  customerPhone?: string;
+
 
   originalFileName: string;
 

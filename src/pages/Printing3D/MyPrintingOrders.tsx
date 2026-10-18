@@ -1085,6 +1085,19 @@ function PrintingOrderCard({
             </div>
 
 
+            {/* CONTACT PHONE */}
+
+            {order.customerPhone?.trim() && (
+              <div className="mt-6 rounded-2xl border border-neutral-200 bg-neutral-50 p-5">
+                <p className="text-xs font-black uppercase tracking-[0.14em] text-neutral-500">
+                  Contact Phone
+                </p>
+                <p className="mt-2 text-sm leading-6 text-neutral-700">
+                  {order.customerPhone}
+                </p>
+              </div>
+            )}
+
             {/* CUSTOMER NOTES */}
 
             {order.customerNotes?.trim() && (
