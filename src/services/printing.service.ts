@@ -423,6 +423,18 @@ export async function createPrintingOrder(
     throw new Error("A signed-in user is required for a printing order.");
   }
 
+  const customerPhone = order.customerPhone?.trim() ?? "";
+  if (!customerPhone) {
+    throw new Error("A contact phone number is required for a 3D printing order.");
+  }
+  if (
+    !/^[+()\d\s.-]{7,32}$/.test(customerPhone) ||
+    customerPhone.replace(/\D/g, "").length < 7 ||
+    customerPhone.replace(/\D/g, "").length > 15
+  ) {
+    throw new Error("Enter a valid phone number containing 7 to 15 digits.");
+  }
+
   const id = createPrintingOrderId();
   const row = mapOrderToRow(order, id);
 

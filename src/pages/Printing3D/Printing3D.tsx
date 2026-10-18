@@ -591,13 +591,17 @@ export default function Printing3D() {
      */
 
     const normalizedPhone = customerPhone.trim();
+    if (!normalizedPhone) {
+      setError("A contact phone number is required so our team can contact you about your request.");
+      return;
+    }
+
     if (
-      normalizedPhone &&
-      (!/^[+()\d\s.-]{7,32}$/.test(normalizedPhone) ||
-        normalizedPhone.replace(/\D/g, "").length < 7 ||
-        normalizedPhone.replace(/\D/g, "").length > 15)
+      !/^[+()\d\s.-]{7,32}$/.test(normalizedPhone) ||
+      normalizedPhone.replace(/\D/g, "").length < 7 ||
+      normalizedPhone.replace(/\D/g, "").length > 15
     ) {
-      setError("Enter a valid contact phone number, or leave the field blank.");
+      setError("Enter a valid phone number containing 7 to 15 digits.");
       return;
     }
 
@@ -1628,7 +1632,7 @@ export default function Printing3D() {
                   htmlFor="printing-customer-phone"
                   className="block text-xs font-black uppercase tracking-[0.16em] text-[#9b7e1d]"
                 >
-                  Contact Phone (Optional)
+                  Contact Phone (Required)
                 </label>
 
                 <p className="mt-2 text-sm leading-6 text-neutral-500">
@@ -1642,6 +1646,8 @@ export default function Printing3D() {
                   autoComplete="tel"
                   value={customerPhone}
                   onChange={(event) => setCustomerPhone(event.target.value.slice(0, 32))}
+                  required
+                  aria-required="true"
                   maxLength={32}
                   disabled={submitting}
                   placeholder="e.g. +91 98765 43210"
@@ -1650,7 +1656,7 @@ export default function Printing3D() {
                 />
 
                 <p id="printing-customer-phone-help" className="mt-1 text-xs text-neutral-400">
-                  Optional. Include your country code when possible.
+                  Required. Include your country code when possible (for example, +91 98765 43210).
                 </p>
               </div>
 
